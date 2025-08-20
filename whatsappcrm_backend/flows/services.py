@@ -396,109 +396,6 @@ class StepConfigSwitchFlow(BasePydanticConfig):
 # Rebuild InteractiveMessagePayload if it had forward references to models defined after it
 InteractiveMessagePayload.model_rebuild()
 
-def _initiate_paynow_payment(contact: Contact, amount_str: str, payment_type: str, payment_method: str, phone_number: str, email: str, currency: str, notes: str) -> dict:
-    """
-    Handles the logic for initiating a Paynow payment.
-    Creates a Payment record, calls Paynow service, and returns context updates.
-    """
-    # 1. Validate amount
-    try:
-        amount = Decimal(amount_str)
-        if amount <= 0:
-            raise ValueError("Amount must be positive.")
-    except (InvalidOperation, ValueError) as e:
-        logger.error(f"Contact {contact.id}: Invalid amount '{amount_str}' for Paynow initiation. Error: {e}")
-        return {
-            'paynow_initiation_success': False,
-            'paynow_initiation_error': f"Invalid amount provided: {amount_str}"
-        }
-
-    # 2. Create a pending Payment record
-    payment = Payment.objects.create(
-        contact=contact,
-        member=getattr(contact, 'member_profile', None),
-        amount=amount,
-        currency=currency or "USD",
-        payment_type=payment_type or "other",
-        payment_method=payment_method,
-        status='pending',
-        notes=notes or "Online giving via WhatsApp flow (Paynow).",
-    )
-    logger.info(f"Contact {contact.id}: Created pending Payment record {payment.id} for Paynow initiation.")
-
-    # 3. Call Paynow Service
-    try:
-        # The IPN URL is constructed here by reversing the named URL from the customer_data app.
-        # This is more robust than having the service guess the URL, which can cause NoReverseMatch errors.
-        ipn_callback_url = reverse('customer_data_api:paynow-ipn-webhook')
-        paynow_service = PaynowService(ipn_callback_url=ipn_callback_url)
-    except Exception as e:
-        logger.error(f"Failed to initialize PaynowService for contact {contact.id}. Error: {e}", exc_info=True)
-        # Update payment status to failed to reflect the initialization failure
-        payment.status = 'failed'
-        payment.notes += f"\nPaynow service failed to initialize: {e}"
-        payment.save(update_fields=['status', 'notes', 'updated_at'])
-        # Return a user-friendly error to the flow context
-        return {
-            'paynow_initiation_success': False,
-            'paynow_initiation_error': 'Paynow service could not be configured.',
-            'last_payment_id': str(payment.id)
-        }
-
-
-    paynow_method_map = {'ecocash': 'ecocash'}
-    paynow_method_type = paynow_method_map.get(str(payment_method).lower())
-
-    if not paynow_method_type:
-        payment.status = 'failed'
-        payment.notes += f"\nUnsupported payment method for Paynow: {payment_method}"
-        payment.save(update_fields=['status', 'notes', 'updated_at'])
-        return {
-            'paynow_initiation_success': False,
-            'paynow_initiation_error': f"Payment method '{payment_method}' is not supported for automated payments."
-        }
-
-    # Use a default email if none is provided, as Paynow requires it.
-    final_email = email or f"{contact.whatsapp_id}@crediblewcrm.co.zw"
-
-    paynow_response = paynow_service.initiate_express_checkout_payment(
-        amount=amount,
-        reference=str(payment.id), # Use our internal Payment UUID as the reference
-        phone_number=phone_number,
-        email=final_email,
-        paynow_method_type=paynow_method_type,
-        description=f"{str(payment_type).title()} from {contact.name or contact.whatsapp_id}"
-    )
-
-    # 5. Handle response
-    if paynow_response.get('success'):
-        payment.transaction_reference = paynow_response.get('paynow_reference')
-        # Be explicit about what is saved to the JSONField to prevent serialization errors.
-        # Only store known, safe, and useful data from the response.
-        payment.external_data = {
-            'poll_url': paynow_response.get('poll_url'),
-            'initiation_response': {
-                'success': paynow_response.get('success'),
-                'status': paynow_response.get('status'),
-                'paynow_reference': paynow_response.get('paynow_reference'),
-                'message': paynow_response.get('message'),
-            }
-        }
-        payment.save(update_fields=['transaction_reference', 'external_data', 'updated_at'])
-        
-        # Use transaction.on_commit to ensure the task is dispatched only after the
-        # payment record has been successfully saved to the database, preventing race conditions.
-        transaction.on_commit(lambda: poll_paynow_transaction_status.delay(payment_id=str(payment.id)))
-        logger.info(f"Contact {contact.id}: Paynow initiation successful for Payment {payment.id}. Polling task scheduled.")
-        return {'paynow_initiation_success': True, 'last_payment_id': str(payment.id)}
-    else:
-        error_message = paynow_response.get('message', 'Unknown error from Paynow.')
-        payment.status = 'failed'
-        payment.notes += f"\nPaynow initiation failed: {error_message}"
-        payment.save(update_fields=['status', 'notes', 'updated_at'])
-        logger.error(f"Contact {contact.id}: Paynow initiation failed for Payment {payment.id}. Reason: {error_message}")
-        return {'paynow_initiation_success': False, 'paynow_initiation_error': error_message, 'last_payment_id': str(payment.id)}
-
 def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, contact: Contact) -> Any:
     """
     Resolves a variable path (e.g., 'contact.name', 'flow_context.user_email') to its value.
@@ -515,13 +412,13 @@ def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, c
     elif source_object_name == 'contact':
         current_value = contact
         path_to_traverse = parts[1:]
-    elif source_object_name == 'member_profile':
+    elif source_object_name == 'customer_profile':
         try:
-            current_value = contact.member_profile # Access related object via Django ORM
+            current_value = contact.customer_profile # Access related object via Django ORM
             path_to_traverse = parts[1:]
-        except (MemberProfile.DoesNotExist, AttributeError):
+        except (CustomerProfile.DoesNotExist, AttributeError):
             logger.debug(
-                f"Contact {contact.id}: MemberProfile does not exist when accessing '{variable_path}'"
+                f"Contact {contact.id}: CustomerProfile does not exist when accessing '{variable_path}'"
             )
             return None
     else: # Default to flow_context if no recognized prefix
@@ -563,7 +460,7 @@ def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, c
 def _resolve_value(template_value: Any, flow_context: dict, contact: Contact) -> Any:
     """
     Resolves a template value using Jinja2, which can be a string, dict, or list.
-    Provides 'contact', 'member_profile', and the flow_context to the template.
+    Provides 'contact', 'customer_profile', and the flow_context to the template.
     """
     if isinstance(template_value, str):
         # Use Jinja2 for powerful string templating, supporting loops, conditionals, and filters.
@@ -573,7 +470,7 @@ def _resolve_value(template_value: Any, flow_context: dict, contact: Contact) ->
             render_context = {
                 **flow_context,
                 'contact': contact,
-                'member_profile': getattr(contact, 'member_profile', None)
+                'customer_profile': getattr(contact, 'customer_profile', None)
             }
             return template.render(render_context)
         except Exception as e:
