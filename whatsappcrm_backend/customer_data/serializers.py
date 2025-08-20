@@ -1,111 +1,79 @@
 # whatsappcrm_backend/customer_data/serializers.py
 from rest_framework import serializers
-from .models import Family, MemberProfile, Payment, PaymentHistory, PrayerRequest
+from django.contrib.auth import get_user_model
+from .models import CustomerProfile, Interaction
 from conversations.models import Contact
 
-# To provide more context on related fields, we can use a simple serializer
+User = get_user_model()
+
+# A simple serializer for providing context on related models
 class SimpleContactSerializer(serializers.ModelSerializer):
     class Meta:
         model = Contact
         fields = ['id', 'whatsapp_id', 'name']
 
-class MemberProfileSerializer(serializers.ModelSerializer):
-    # The primary key of MemberProfile is 'contact', which is a OneToOneField.
+class SimpleUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name']
+
+class CustomerProfileSerializer(serializers.ModelSerializer):
+    # The primary key of CustomerProfile is 'contact', which is a OneToOneField.
     # DRF handles this, 'pk' in the URL will map to 'contact_id'.
     contact = SimpleContactSerializer(read_only=True)
     
     # To make choices human-readable in API responses
-    gender_display = serializers.CharField(source='get_gender_display', read_only=True)
-    marital_status_display = serializers.CharField(source='get_marital_status_display', read_only=True)
-    membership_status_display = serializers.CharField(source='get_membership_status_display', read_only=True)
+    lead_status_display = serializers.CharField(source='get_lead_status_display', read_only=True)
     
-    class Meta:
-        model = MemberProfile
-        # The 'contact' field is the PK, so it's implicitly read-only here
-        # but can be written to on creation if not using the on-the-fly creation in the view.
-        fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at', 'last_updated_from_conversation')
-
-class FamilySerializer(serializers.ModelSerializer):
-    # Use MemberProfileSerializer for a nested representation of members
-    members = MemberProfileSerializer(many=True, read_only=True)
-    # For writing, we might accept a list of contact_ids
-    member_ids = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=MemberProfile.objects.all(), source='members', write_only=True, required=False
+    # Nested serializer for the assigned agent
+    assigned_agent = SimpleUserSerializer(read_only=True)
+    # Writable field for assigning an agent by their ID
+    assigned_agent_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='assigned_agent', write_only=True, allow_null=True, required=False
     )
-    head_of_household_details = MemberProfileSerializer(source='head_of_household.member_profile', read_only=True)
 
     class Meta:
-        model = Family
+        model = CustomerProfile
+        # The 'contact' field is the PK, so it's implicitly read-only here.
         fields = [
-            'id', 'name', 'head_of_household', 'head_of_household_details', 
-            'members', 'member_ids', 'created_at', 'updated_at'
+            'contact', 'first_name', 'last_name', 'email', 'company', 'role',
+            'address_line_1', 'address_line_2', 'city', 'state_province', 'postal_code', 'country',
+            'lead_status', 'lead_status_display', 'potential_value', 'acquisition_source',
+            'assigned_agent', 'assigned_agent_id', 'tags', 'notes', 'custom_attributes',
+            'created_at', 'updated_at', 'last_interaction_date'
         ]
-        read_only_fields = ('created_at', 'updated_at')
+        read_only_fields = ('created_at', 'updated_at', 'last_interaction_date')
 
-class PaymentHistorySerializer(serializers.ModelSerializer):
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-
-    class Meta:
-        model = PaymentHistory
-        fields = ['id', 'payment', 'status', 'status_display', 'timestamp', 'notes']
-        read_only_fields = ('id', 'payment', 'status', 'status_display', 'timestamp') # Notes can be added by admin
-
-class PaymentSerializer(serializers.ModelSerializer):
+class InteractionSerializer(serializers.ModelSerializer):
     # Display human-readable choice values
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    payment_method_display = serializers.CharField(source='get_payment_method_display', read_only=True)
-    payment_type_display = serializers.CharField(source='get_payment_type_display', read_only=True)
+    interaction_type_display = serializers.CharField(source='get_interaction_type_display', read_only=True)
+    
+    # Provide context on the customer and agent
+    customer = CustomerProfileSerializer(read_only=True)
+    agent = SimpleUserSerializer(read_only=True)
 
-    # Provide some context on the member/contact
-    member_details = MemberProfileSerializer(source='member', read_only=True)
-    contact_details = SimpleContactSerializer(source='contact', read_only=True)
-
-    # The history can be nested and read-only
-    history = PaymentHistorySerializer(many=True, read_only=True)
+    # Writable fields for creating an interaction
+    customer_id = serializers.PrimaryKeyRelatedField(
+        queryset=CustomerProfile.objects.all(), source='customer', write_only=True
+    )
+    agent_id = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.all(), source='agent', write_only=True, allow_null=True, required=False
+    )
 
     class Meta:
-        model = Payment
+        model = Interaction
         fields = [
-            'id', 'member', 'member_details', 'contact', 'contact_details', 'amount', 'currency',
-            'payment_type', 'payment_type_display', 'payment_method', 'payment_method_display',
-            'status', 'status_display', 'transaction_reference', 'external_data', 'notes',
-            'proof_of_payment', 'history', 'created_at', 'updated_at'
+            'id', 'customer', 'customer_id', 'agent', 'agent_id', 'interaction_type',
+            'interaction_type_display', 'notes', 'created_at'
         ]
-        read_only_fields = ('id', 'created_at', 'updated_at', 'history')
+        read_only_fields = ('id', 'created_at')
 
     def create(self, validated_data):
-        # The model's save() method handles history creation, so we just call super.
+        # If agent is not provided in the request, but there's a user in the context (e.g., logged-in user),
+        # we can automatically assign them.
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            if 'agent' not in validated_data:
+                validated_data['agent'] = request.user
+        
         return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        # The model's save() method handles history creation on status change.
-        return super().update(instance, validated_data)
-
-class PrayerRequestSerializer(serializers.ModelSerializer):
-    category_display = serializers.CharField(source='get_category_display', read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    
-    member_details = MemberProfileSerializer(source='member', read_only=True)
-    contact_details = SimpleContactSerializer(source='contact', read_only=True)
-    
-    # To hide submitter info if anonymous
-    submitter_name = serializers.SerializerMethodField()
-
-    class Meta:
-        model = PrayerRequest
-        fields = [
-            'id', 'member', 'member_details', 'contact', 'contact_details', 'submitter_name', 'submitted_as_member',
-            'request_text', 'category', 'category_display', 'is_anonymous',
-            'status', 'status_display', 'created_at', 'updated_at'
-        ]
-        read_only_fields = ('id', 'created_at', 'updated_at', 'submitter_name')
-
-    def get_submitter_name(self, obj):
-        if obj.is_anonymous:
-            return "Anonymous"
-        if obj.member and obj.member.get_full_name():
-            return obj.member.get_full_name()
-        if obj.contact:
-            return obj.contact.name or obj.contact.whatsapp_id
-        return "Unknown"

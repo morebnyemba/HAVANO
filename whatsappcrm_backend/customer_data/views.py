@@ -2,37 +2,41 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from rest_framework.decorators import api_view, permission_classes
 from django.http import Http404
 
 
-from .models import MemberProfile, Family, Payment, PendingVerificationPayment, PaymentHistory, PrayerRequest
-from paynow_integration.tasks import process_paynow_ipn_task
-from .serializers import (
-    MemberProfileSerializer, FamilySerializer, PaymentSerializer, PaymentHistorySerializer, PrayerRequestSerializer
-)
-from conversations.models import Contact # To ensure contact exists for profile creation/retrieval
+# New models and serializers
+from .models import CustomerProfile, Interaction
+from .serializers import CustomerProfileSerializer, InteractionSerializer
+
+# Still need Contact for get_or_create logic
+from conversations.models import Contact
 
 import logging
 logger = logging.getLogger(__name__)
 
-class IsAdminOrUpdateOnly(permissions.BasePermission): # Example, adjust as needed
+class IsAdminOrUpdateOnly(permissions.BasePermission):
+    """
+    Allows read-only access to any authenticated user, but write access only to admin/staff users.
+    """
     def has_permission(self, request, view):
         return request.user and request.user.is_authenticated
+
     def has_object_permission(self, request, view, obj):
         if request.method in permissions.SAFE_METHODS:
             return True
         return request.user and request.user.is_staff
 
-class MemberProfileViewSet(viewsets.ModelViewSet):
-    queryset = MemberProfile.objects.select_related('contact').all()
-    serializer_class = MemberProfileSerializer
+class CustomerProfileViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for managing Customer Profiles.
+    A profile is automatically created for a contact on first access (GET/PUT/PATCH).
+    """
+    queryset = CustomerProfile.objects.select_related('contact', 'assigned_agent').all()
+    serializer_class = CustomerProfileSerializer
     permission_classes = [permissions.IsAuthenticated, IsAdminOrUpdateOnly]
     
-    # MemberProfile's PK is contact_id
-    # DRF ModelViewSet will use 'pk' from URL by default.
-    # Since MemberProfile.pk IS contact_id, this works.
+    # CustomerProfile's PK is contact_id.
     # The URL will be /profiles/{pk}/ where pk is the contact_id.
     lookup_field = 'pk' # Explicitly state we are looking up by the primary key (contact_id)
 
@@ -42,81 +46,42 @@ class MemberProfileViewSet(viewsets.ModelViewSet):
         If the profile doesn't exist for a GET/PUT/PATCH, create it on-the-fly.
         """
         queryset = self.filter_queryset(self.get_queryset())
-        pk = self.kwargs.get(self.lookup_url_kwarg or 'pk') # Default lookup is 'pk'
+        # The 'pk' in the URL corresponds to the Contact's ID.
+        pk = self.kwargs.get(self.lookup_url_kwarg or self.lookup_field)
 
         try:
-            obj = queryset.get(pk=pk) # pk here is contact_id
+            # The primary key of CustomerProfile is the contact_id.
+            obj = queryset.get(pk=pk)
             self.check_object_permissions(self.request, obj)
             return obj
-        except MemberProfile.DoesNotExist:
-            # If profile doesn't exist but contact does, create profile for GET/PUT/PATCH.
+        except CustomerProfile.DoesNotExist:
+            # For safe methods (GET) or update methods (PUT, PATCH), if the profile doesn't exist
+            # but the underlying Contact does, we create the profile. This is a common pattern
+            # for user profiles that might not be created immediately with the user/contact.
             if self.request.method in ['GET', 'PUT', 'PATCH']:
-                contact = get_object_or_404(Contact, pk=pk) # Check if contact exists
-                obj, created = MemberProfile.objects.get_or_create(contact=contact)
+                contact = get_object_or_404(Contact, pk=pk) # First, ensure the contact exists.
+                # get_or_create is atomic and safe.
+                obj, created = CustomerProfile.objects.get_or_create(contact=contact)
                 if created:
-                    logger.info(f"MemberProfile created on-the-fly for Contact ID: {pk} during {self.request.method} action.")
+                    logger.info(f"CustomerProfile created on-the-fly for Contact ID: {pk} during {self.request.method} action.")
+                # We must still check permissions on the newly created object.
                 self.check_object_permissions(self.request, obj)
                 return obj
-            raise Http404("MemberProfile not found and action is not retrieve/update.")
+            # For other methods like DELETE, if it doesn't exist, it's a 404.
+            raise Http404("CustomerProfile not found and action is not retrieve/update.")
 
-    def perform_update(self, serializer):
-        # Set last_updated_from_conversation when an agent/API updates the profile
-        serializer.save(last_updated_from_conversation=timezone.now())
-        logger.info(f"MemberProfile for Contact ID {serializer.instance.contact_id} updated by {self.request.user}.")
+    # The `perform_update` method is no longer needed as `updated_at` is automatic
+    # and `last_interaction_date` is handled by the Interaction model.
 
-    # perform_create is usually not needed for a OneToOneProfile that's auto-created
-    # or created on first update/get. If you want an explicit POST to /profiles/
-    # to create one (expecting contact_id in payload), that's also possible.
-    # The get_or_create in get_object handles on-demand creation for GET/PUT/PATCH.
-
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def paynow_ipn_webhook(request):
+class InteractionViewSet(viewsets.ModelViewSet):
     """
-    Handles the Instant Payment Notification from Paynow.
-    It dispatches the processing to a Celery task to avoid blocking Paynow.
+    API endpoint for logging and viewing customer interactions.
+    Supports filtering by customer profile ID, e.g., /api/interactions/?customer=<contact_id>
     """
-    ipn_data = request.data
-    logger.info(f"Paynow IPN received: {ipn_data}")
-    process_paynow_ipn_task.delay(ipn_data)
-    return Response(status=status.HTTP_200_OK)
+    queryset = Interaction.objects.select_related('customer__contact', 'agent').all().order_by('-created_at')
+    serializer_class = InteractionSerializer
+    permission_classes = [permissions.IsAuthenticated] # Any authenticated agent can log/view interactions.
+    filterset_fields = ['customer', 'interaction_type', 'agent']
+    search_fields = ['notes', 'customer__first_name', 'customer__last_name', 'customer__contact__whatsapp_id']
 
-
-class FamilyViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint for managing Family units.
-    """
-    queryset = Family.objects.prefetch_related('members').all()
-    serializer_class = FamilySerializer
-    permission_classes = [permissions.IsAuthenticated] # Adjust permissions as needed
-
-
-class PaymentViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint for managing Payments.
-    Provides full CRUD for payments. The model's save method handles history creation.
-    """
-    queryset = Payment.objects.select_related('member', 'contact').prefetch_related('history').all()
-    serializer_class = PaymentSerializer
-    permission_classes = [permissions.IsAuthenticated] # Adjust as needed
-
-
-class PaymentHistoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    API endpoint for viewing Payment History.
-    This is a read-only view as history is created automatically.
-    Supports filtering by payment ID, e.g., /api/payment-history/?payment_id=<uuid>
-    """
-    queryset = PaymentHistory.objects.select_related('payment').all()
-    serializer_class = PaymentHistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
-    filterset_fields = ['payment'] # Allows filtering like ?payment=<payment_id>
-
-
-class PrayerRequestViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint for managing Prayer Requests.
-    """
-    queryset = PrayerRequest.objects.select_related('member', 'contact').all()
-    serializer_class = PrayerRequestSerializer
-    permission_classes = [permissions.IsAuthenticated] # Adjust as needed
+    # No custom perform_create needed, the serializer handles agent assignment from request context.
