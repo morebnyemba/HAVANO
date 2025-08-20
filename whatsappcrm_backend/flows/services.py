@@ -1203,15 +1203,15 @@ def _update_contact_data(contact: Contact, field_path: str, value_to_set: Any):
         logger.warning(f"Unsupported field path '{field_path}' for updating Contact model.")
 
 
-def _update_member_profile_data(contact: Contact, fields_to_update_config: Dict[str, Any], flow_context: dict):
+def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dict[str, Any], flow_context: dict):
     if not fields_to_update_config or not isinstance(fields_to_update_config, dict): 
-        logger.warning("_update_member_profile_data called with invalid fields_to_update_config.")
+        logger.warning("_update_customer_profile_data called with invalid fields_to_update_config.")
         return
 
     # get_or_create is atomic and safe for concurrent requests.
-    profile, created = MemberProfile.objects.get_or_create(contact=contact)
+    profile, created = CustomerProfile.objects.get_or_create(contact=contact)
     if created: 
-        logger.info(f"Created MemberProfile for contact {contact.whatsapp_id}")
+        logger.info(f"Created CustomerProfile for contact {contact.whatsapp_id}")
 
     changed_fields = []
     for field_path, value_template in fields_to_update_config.items():
@@ -1225,55 +1225,67 @@ def _update_member_profile_data(contact: Contact, fields_to_update_config: Dict[
         if len(parts) == 1: # Direct attribute on MemberProfile model
             field_name = parts[0]
             # Prevent updating protected/internal fields
-            if hasattr(profile, field_name) and field_name.lower() not in ['id', 'pk', 'contact', 'contact_id', 'created_at', 'updated_at', 'last_updated_from_conversation']:
+            if hasattr(profile, field_name) and field_name.lower() not in ['contact', 'contact_id', 'created_at', 'updated_at', 'last_interaction_date']:
                 try:
                     field_object = profile._meta.get_field(field_name)
                     # Robustness: Coerce empty strings to None for nullable fields to prevent validation errors.
                     if isinstance(field_object, models.DateField) and resolved_value == '':
                         resolved_value = None
 
+                    # Coerce to Decimal for DecimalField
+                    if isinstance(field_object, models.DecimalField) and resolved_value is not None:
+                        try:
+                            resolved_value = Decimal(resolved_value)
+                        except (InvalidOperation, TypeError):
+                            logger.warning(f"Could not convert '{resolved_value}' to Decimal for field '{field_name}'. Skipping update.")
+                            continue
+
                     setattr(profile, field_name, resolved_value)
                     if field_name not in changed_fields: 
                         changed_fields.append(field_name)
                 except (DjangoValidationError, TypeError, ValueError) as e:
-                    logger.error(f"Validation/Type error updating MemberProfile field '{field_name}' for contact {contact.id} with value '{resolved_value}'. Error: {e}", exc_info=False)
+                    logger.error(f"Validation/Type error updating CustomerProfile field '{field_name}' for contact {contact.id} with value '{resolved_value}'. Error: {e}", exc_info=False)
                     # Continue to next field, do not add to changed_fields
                     continue
             else:
-                logger.warning(f"MemberProfile field '{field_name}' not found or is protected.")
-        elif parts[0] in ['preferences', 'custom_attributes'] and len(parts) > 1: # JSONFields
+                logger.warning(f"CustomerProfile field '{field_name}' not found or is protected.")
+        elif parts[0] in ['tags', 'custom_attributes'] and len(parts) > 1: # JSONFields
             json_field_name = parts[0]
             json_data = getattr(profile, json_field_name)
-            if not isinstance(json_data, dict): 
-                json_data = {} # Initialize if None or not a dict
+            
+            # Initialize if None or not the correct type
+            if json_field_name == 'tags' and not isinstance(json_data, list):
+                json_data = []
+            elif json_field_name == 'custom_attributes' and not isinstance(json_data, dict):
+                json_data = {}
             
             current_level = json_data
             for key in parts[1:-1]: # Navigate to the second to last key
                 current_level = current_level.setdefault(key, {})
                 if not isinstance(current_level, dict):
-                    logger.warning(f"Path error in MemberProfile.{json_field_name} at '{key}'. Expected dict, found {type(current_level)}.")
+                    logger.warning(f"Path error in CustomerProfile.{json_field_name} at '{key}'. Expected dict, found {type(current_level)}.")
                     current_level = None # Stop further processing for this path
                     break
             
             if current_level is not None:
                 final_key = parts[-1]
-                current_level[final_key] = resolved_value
+                if isinstance(current_level, dict):
+                    current_level[final_key] = resolved_value
+                elif isinstance(current_level, list):
+                    # For tags, we might want to append, but for now, direct assignment is simpler.
+                    # This part can be enhanced if needed.
+                    logger.warning(f"Direct key assignment ('{final_key}') on a list (tags) is not supported. Replacing list.")
+                    json_data = resolved_value if isinstance(resolved_value, list) else [resolved_value]
+
                 setattr(profile, json_field_name, json_data) # Assign the modified dict back
                 if json_field_name not in changed_fields:
                     changed_fields.append(json_field_name)
         else:
-            logger.warning(f"Unsupported field path for MemberProfile: {field_path}")
+            logger.warning(f"Unsupported field path for CustomerProfile: {field_path}")
 
     if changed_fields:
-        profile.last_updated_from_conversation = timezone.now()
-        if 'last_updated_from_conversation' not in changed_fields:
-            changed_fields.append('last_updated_from_conversation')
         profile.save(update_fields=changed_fields)
-        logger.info(f"MemberProfile for {contact.whatsapp_id} updated fields: {changed_fields}")
-    elif created: # If only created and no specific fields changed by the action, still update timestamp
-        profile.last_updated_from_conversation = timezone.now()
-        profile.save(update_fields=['last_updated_from_conversation'])
-
+        logger.info(f"CustomerProfile for {contact.whatsapp_id} updated fields: {changed_fields}")
 
 
 # --- Main Service Function (process_message_for_flow) ---
