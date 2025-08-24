@@ -7,6 +7,26 @@ from django.utils import timezone
 from conversations.models import Contact
 import uuid
 
+class LeadStatus(models.TextChoices):
+    """Defines the choices for the lead status in the sales pipeline."""
+    NEW = 'new', _('New')
+    CONTACTED = 'contacted', _('Contacted')
+    QUALIFIED = 'qualified', _('Qualified')
+    PROPOSAL_SENT = 'proposal_sent', _('Proposal Sent')
+    NEGOTIATION = 'negotiation', _('Negotiation')
+    WON = 'won', _('Won')
+    LOST = 'lost', _('Lost')
+    ON_HOLD = 'on_hold', _('On Hold')
+
+class InteractionType(models.TextChoices):
+    """Defines the types of interactions that can be logged."""
+    CALL = 'call', _('Call')
+    EMAIL = 'email', _('Email')
+    WHATSAPP = 'whatsapp', _('WhatsApp Message')
+    MEETING = 'meeting', _('Meeting')
+    NOTE = 'note', _('Internal Note')
+    OTHER = 'other', _('Other')
+
 class CustomerProfile(models.Model):
     """
     Stores aggregated and specific data about a customer, linked to their Contact record.
@@ -36,21 +56,11 @@ class CustomerProfile(models.Model):
     country = models.CharField(_("Country"), max_length=100, blank=True, null=True)
     
     # Sales & Lead Information
-    LEAD_STATUS_CHOICES = [
-        ('new', _('New')),
-        ('contacted', _('Contacted')),
-        ('qualified', _('Qualified')),
-        ('proposal_sent', _('Proposal Sent')),
-        ('negotiation', _('Negotiation')),
-        ('won', _('Won')),
-        ('lost', _('Lost')),
-        ('on_hold', _('On Hold')),
-    ]
     lead_status = models.CharField(
         _("Lead Status"),
         max_length=50,
-        choices=LEAD_STATUS_CHOICES,
-        default='new',
+        choices=LeadStatus.choices,
+        default=LeadStatus.NEW,
         db_index=True,
         help_text=_("The current stage of the customer in the sales pipeline.")
     )
@@ -111,20 +121,16 @@ class CustomerProfile(models.Model):
         help_text=_("Timestamp of the last recorded interaction with this customer.")
     )
 
-    def get_full_name(self):
-        if self.first_name and self.last_name:
-            return f"{self.first_name} {self.last_name}"
-        elif self.first_name:
-            return self.first_name
-        elif self.last_name:
-            return self.last_name
-        return None
+    def get_full_name(self) -> str | None:
+        """Returns the full name of the customer, or None if no name is set."""
+        parts = [self.first_name, self.last_name]
+        full_name = " ".join(p for p in parts if p)
+        return full_name or None
 
-    def __str__(self):
-        full_name = self.get_full_name()
-        if full_name:
-            return f"Customer: {full_name} ({self.contact.whatsapp_id})"
-        return f"Customer: {self.contact.name or self.contact.whatsapp_id}"
+    def __str__(self) -> str:
+        """Returns a string representation of the customer profile."""
+        display_name = self.get_full_name() or self.contact.name or self.contact.whatsapp_id
+        return f"Customer: {display_name}"
 
     class Meta:
         verbose_name = _("Customer Profile")
@@ -137,14 +143,6 @@ class Interaction(models.Model):
     Represents a single interaction with a customer, such as a call, email, or meeting.
     This creates a historical log of all communications.
     """
-    INTERACTION_TYPE_CHOICES = [
-        ('call', _('Call')),
-        ('email', 'Email'),
-        ('whatsapp', _('WhatsApp Message')),
-        ('meeting', _('Meeting')),
-        ('note', _('Internal Note')),
-        ('other', _('Other')),
-    ]
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     customer = models.ForeignKey(
@@ -164,8 +162,8 @@ class Interaction(models.Model):
     interaction_type = models.CharField(
         _("Interaction Type"),
         max_length=50,
-        choices=INTERACTION_TYPE_CHOICES,
-        default='note'
+        choices=InteractionType.choices,
+        default=InteractionType.NOTE
     )
     notes = models.TextField(
         _("Notes / Summary"),
@@ -177,20 +175,22 @@ class Interaction(models.Model):
         help_text=_("When the interaction occurred.")
     )
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """Returns a string representation of the interaction."""
         return f"{self.get_interaction_type_display()} with {self.customer} on {self.created_at.strftime('%Y-%m-%d')}"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs) -> None:
         """
-        Overrides save to update the customer's last_interaction_date.
+        Overrides the save method to automatically update the related customer's
+        `last_interaction_date` field. This ensures the customer profile
+        always reflects the latest activity.
         """
-        # Save the interaction first
         super().save(*args, **kwargs)
-        # Then, update the related customer profile
-        # Use self.created_at as the source of truth for the interaction time
         if self.customer:
+            # Using update_fields is a performance best practice, as it avoids
+            # re-saving all fields and triggering unnecessary database operations.
             self.customer.last_interaction_date = self.created_at
-            self.customer.save(update_fields=['last_interaction_date'])
+            self.customer.save(update_fields=['last_interaction_date']) # type: ignore
 
     class Meta:
         verbose_name = _("Interaction")

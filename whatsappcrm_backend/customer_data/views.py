@@ -15,17 +15,35 @@ from conversations.models import Contact
 import logging
 logger = logging.getLogger(__name__)
 
-class IsAdminOrUpdateOnly(permissions.BasePermission):
+class IsStaffOrReadOnly(permissions.BasePermission):
     """
-    Allows read-only access to any authenticated user, but write access only to admin/staff users.
+    Custom permission to only allow read access to any authenticated user,
+    but full write access (create, update, delete) only to admin/staff users.
     """
     def has_permission(self, request, view):
+        # Allow read-only access for any request.
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        # Allow write access only for staff users.
+        return request.user and request.user.is_staff
+
+class IsInteractionOwnerOrAdmin(permissions.BasePermission):
+    """
+    Allows read access to any authenticated user.
+    Allows any authenticated user to create an interaction.
+    Allows write access (update, delete) only to the agent who created the interaction
+    or to an admin/staff user.
+    """
+    def has_permission(self, request, view):
+        # Allow any authenticated user to access the view (for list and create)
         return request.user and request.user.is_authenticated
 
     def has_object_permission(self, request, view, obj):
+        # Allow read access for any authenticated user.
         if request.method in permissions.SAFE_METHODS:
             return True
-        return request.user and request.user.is_staff
+        # Allow write access only to the owner or an admin.
+        return obj.agent == request.user or request.user.is_staff
 
 class CustomerProfileViewSet(viewsets.ModelViewSet):
     """
@@ -34,11 +52,17 @@ class CustomerProfileViewSet(viewsets.ModelViewSet):
     """
     queryset = CustomerProfile.objects.select_related('contact', 'assigned_agent').all()
     serializer_class = CustomerProfileSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrUpdateOnly]
+    permission_classes = [permissions.IsAuthenticated, IsStaffOrReadOnly]
     
     # CustomerProfile's PK is contact_id.
     # The URL will be /profiles/{pk}/ where pk is the contact_id.
     lookup_field = 'pk' # Explicitly state we are looking up by the primary key (contact_id)
+
+    # Enable filtering and searching for better usability on the frontend.
+    # For more advanced filtering (e.g., date ranges), consider using the `django-filter` library
+    # and defining a `filterset_class`.
+    filterset_fields = ['lead_status', 'assigned_agent', 'country', 'company']
+    search_fields = ['first_name', 'last_name', 'email', 'company', 'contact__whatsapp_id', 'tags']
 
     def get_object(self):
         """
@@ -80,8 +104,12 @@ class InteractionViewSet(viewsets.ModelViewSet):
     """
     queryset = Interaction.objects.select_related('customer__contact', 'agent').all().order_by('-created_at')
     serializer_class = InteractionSerializer
-    permission_classes = [permissions.IsAuthenticated] # Any authenticated agent can log/view interactions.
+    permission_classes = [permissions.IsAuthenticated, IsInteractionOwnerOrAdmin]
+
+    # For more advanced filtering (e.g., date ranges), consider using the `django-filter` library
+    # and defining a `filterset_class`.
     filterset_fields = ['customer', 'interaction_type', 'agent']
     search_fields = ['notes', 'customer__first_name', 'customer__last_name', 'customer__contact__whatsapp_id']
 
     # No custom perform_create needed, the serializer handles agent assignment from request context.
+    # The IsInteractionOwnerOrAdmin permission class allows any authenticated user to create.
