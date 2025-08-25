@@ -21,10 +21,8 @@ from conversations.models import Contact, Message
 from .models import Flow, FlowStep, FlowTransition, ContactFlowState
 # Corrected imports for customer_data models and utils
 from customer_data.models import CustomerProfile
-from customer_data.utils import record_payment, record_prayer_request
-
 # Import custom action functions
-from customer_data.flow_actions import create_opportunity
+from customer_data.utils import record_payment, record_prayer_request, create_opportunity
 
 # Import Pydantic schemas from the new file
 from .schemas import (
@@ -451,7 +449,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                     currency = _resolve_value(action_item_conf.currency_template, current_step_context, contact)
                     notes = _resolve_value(action_item_conf.notes_template, current_step_context, contact)
 
-                    context_updates = _initiate_paynow_payment(contact, amount_str, payment_type, payment_method, phone_number, email, currency, notes)
+                    context_updates = _initiate_paynow_giving_payment(contact, amount_str, payment_type, payment_method, phone_number, email, currency, notes)
                     current_step_context.update(context_updates)
                     logger.info(f"Contact {contact.id}: Action in step {step.id} initiated Paynow payment. Context updated: {context_updates}")
 
@@ -713,19 +711,21 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
         else:
             logger.error(f"Flow '{triggered_flow.name}' is active but has no entry point step defined.")
             return False  # Failed to trigger
-    else:
-        logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
-        return False # No flow triggered
-    elif not contact.flow_state:
-        lead_gen_flow = Flow.objects.filter(name = "lead_generation", is_active = True).first()
-        entry_point_step = FlowStep.objects.filter(flow=lead_gen_flow, is_entry_point=True).first()
-        if entry_point_step:
-             ContactFlowState.objects.create(
-                contact=contact,
-                current_flow=lead_gen_flow,
-                current_step=entry_point_step,
-                flow_context_data={},  # Always start with an empty context
-                started_at=timezone.now())
+    elif not contact.flow_state: # If no keyword flow, try a default flow for new contacts
+        lead_gen_flow = Flow.objects.filter(name="lead_generation", is_active=True).first()
+        if lead_gen_flow:
+            entry_point_step = FlowStep.objects.filter(flow=lead_gen_flow, is_entry_point=True).first()
+            if entry_point_step:
+                ContactFlowState.objects.create(
+                    contact=contact,
+                    current_flow=lead_gen_flow,
+                    current_step=entry_point_step,
+                    flow_context_data={},  # Always start with an empty context
+                    started_at=timezone.now())
+                return True
+
+    logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
+    return False # No flow triggered
 
 
 def _evaluate_transition_condition(transition: FlowTransition, contact: Contact, message_data: dict, flow_context: dict, incoming_message_obj: Message) -> bool:
