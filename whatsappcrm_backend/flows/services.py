@@ -1,27 +1,45 @@
 # whatsappcrm_backend/flows/services.py
 from django.db import models
 import logging
-import json
 import re
-from typing import List, Dict, Any, Optional, Union, Literal # For Pydantic type hinting
+from typing import List, Dict, Any, Optional, Union, Literal
 
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.db import transaction
 from django.apps import apps
 from django.forms.models import model_to_dict
-from django.urls import reverse
-from jinja2 import Environment, select_autoescape, Undefined
-from django.core.exceptions import ValidationError as DjangoValidationError
-from pydantic import BaseModel, ValidationError, field_validator, model_validator, Field
+from jinja2 import Environment, select_autoescape, Undefined, pass_context
+from django.core.exceptions import ValidationError as DjangoValidationError # Renamed to avoid conflict with Pydantic
+from pydantic import ValidationError
 from django.conf import settings
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+import json
 
 from conversations.models import Contact, Message
 from .models import Flow, FlowStep, FlowTransition, ContactFlowState
-from customer_data.models import MemberProfile, Payment
+# Corrected imports for customer_data models and utils
+from customer_data.models import CustomerProfile
 from customer_data.utils import record_payment, record_prayer_request
+
+# Import custom action functions
+from customer_data.flow_actions import create_opportunity
+
+# Import Pydantic schemas from the new file
+from .schemas import (
+    StepConfigSendMessage, StepConfigQuestion, StepConfigAction,
+    StepConfigHumanHandover, StepConfigEndFlow, StepConfigSwitchFlow,
+    MediaMessageContent, FallbackConfig, InteractiveMessagePayload # Added InteractiveMessagePayload
+)
+
+# --- Dynamic Custom Action Registry ---
+class FlowActionRegistry:
+    def __init__(self): self._actions = {}
+    def register(self, name, func): self._actions[name] = func; logger.info(f"Registered flow action: '{name}'")
+    def get(self, name): return self._actions.get(name)
+flow_action_registry = FlowActionRegistry()
+
 from paynow_integration.services import PaynowService
 from paynow_integration.tasks import poll_paynow_transaction_status
 try:
@@ -29,10 +47,6 @@ try:
     MEDIA_ASSET_ENABLED = True
 except ImportError:
     MEDIA_ASSET_ENABLED = False
-    # Corrected logger usage: Use the logger instance defined below.
-    # logger.warning("MediaAsset model not found. Media steps will only support direct ID/Link.")
-    # This will be logged when the logger is initialized.
-
 logger = logging.getLogger(__name__)
 
 # Log MediaAsset status at module load time
@@ -55,15 +69,25 @@ def strftime_filter(value, format_string='%b %d, %Y'):
     
     dt_obj = None
     if isinstance(value, str):
-        dt_obj = parse_datetime(value)
-        if not dt_obj:
-            # Try parsing as just a date if datetime fails
-            try:
-                dt_obj = datetime.strptime(value, '%Y-%m-%d')
-            except (ValueError, TypeError):
+        try:
+            dt_obj = parse_datetime(value) # Handles ISO format and some others
+        except (ValueError, TypeError):
+            # If parse_datetime fails, try common date formats
+            for fmt in ('%Y-%m-%d', '%m/%d/%Y', '%d-%m-%Y'):
+                try:
+                    dt_obj = datetime.strptime(value, fmt)
+                    break
+                except ValueError:
+                    continue
+            if not dt_obj:
                 return value # Return original string if parsing fails
     elif isinstance(value, (datetime, date)):
         dt_obj = value
+    elif value is None:
+        return "" # Handle None gracefully
+    else:
+        # If it's not a string, datetime, or date, return as is
+        return value
     
     return dt_obj.strftime(format_string) if dt_obj else value
 
@@ -78,6 +102,15 @@ def truncatewords_filter(value, length=25, end_text='...'):
         return value
     return ' '.join(words[:length]) + end_text
 
+@pass_context
+def to_interactive_rows_filter(context, value):
+    """Jinja2 filter to convert a list of dicts into a format for interactive message rows."""
+    if not isinstance(value, list): return []
+    # This is a simplified example. A real implementation would need to know which
+    # keys from the dicts to map to 'id', 'title', and 'description'.
+    # For now, we assume the dicts have these keys.
+    return [{"id": item.get("sku", str(item.get("id"))), "title": item.get("name"), "description": f"${item.get('price')}"} for item in value]
+
 jinja_env = Environment(
     loader=None, # We're loading templates from strings, not files
     autoescape=select_autoescape(['html', 'xml'], disabled_extensions=('txt',), default_for_string=False),
@@ -85,316 +118,9 @@ jinja_env = Environment(
     enable_async=False
 )
 jinja_env.filters['strftime'] = strftime_filter # Add the custom filter
-jinja_env.filters['truncatewords'] = truncatewords_filter # Add the new filter
+jinja_env.filters['truncatewords'] = truncatewords_filter # Add the filter
+jinja_env.filters['to_interactive_rows'] = to_interactive_rows_filter # Add the new filter
 jinja_env.globals['now'] = timezone.now # Make 'now' globally available for date comparisons
-
-
-# --- Pydantic Models for Configuration Validation ---
-# NOTE: For better organization in a larger project, these Pydantic models could be
-# moved to a dedicated 'schemas.py' or 'types.py' file within the 'flows' app.
-
-# These should ideally be in a separate 'schemas.py' or 'types.py' file for better organization.
-
-class BasePydanticConfig(BaseModel):
-    class Config:
-        # Forbid extra fields to catch typos in the configuration JSON.
-        extra = 'forbid'
-
-# --- Configs for 'send_message' step ---
-class TextMessageContent(BasePydanticConfig): # Renamed from TextMessagePayload to avoid confusion with WA payload
-    body: str = Field(..., min_length=1, max_length=4096) # WhatsApp limit
-    preview_url: bool = False
-
-class MediaMessageContent(BasePydanticConfig): # Renamed
-    asset_pk: Optional[int] = None
-    id: Optional[str] = None      # WhatsApp Media ID
-    link: Optional[str] = None    # Public URL
-    caption: Optional[str] = Field(default=None, max_length=1024) # WhatsApp limit for caption
-    filename: Optional[str] = None # Primarily for documents
-
-    @model_validator(mode='after')
-    def check_media_source(self):
-        if not MEDIA_ASSET_ENABLED and self.asset_pk: # If MediaAsset not enabled, asset_pk is invalid
-             raise ValueError("'asset_pk' provided but MediaAsset system is not enabled/imported.")
-        if not (self.asset_pk or self.id or self.link):
-            raise ValueError("One of 'asset_pk', 'id', or 'link' must be provided for media.")
-        return self
-
-class MediaHeaderContent(BasePydanticConfig):
-    # A simplified version of MediaMessageContent for headers, which don't support asset_pk.
-    id: Optional[str] = None      # WhatsApp Media ID
-    link: Optional[str] = None    # Public URL
-
-    @model_validator(mode='after')
-    def check_media_source(self):
-        if not (self.id or self.link):
-            raise ValueError("One of 'id' or 'link' must be provided for a media header.")
-        return self
-
-class InteractiveButtonReply(BasePydanticConfig):
-    id: str = Field(..., min_length=1, max_length=256)
-    title: str = Field(..., min_length=1, max_length=20)
-
-class InteractiveButton(BasePydanticConfig): # This is the object in the buttons array
-    type: Literal["reply"] = "reply"
-    reply: InteractiveButtonReply
-
-class InteractiveButtonAction(BasePydanticConfig):
-    buttons: List[InteractiveButton] = Field(..., min_items=1, max_items=3)
-
-class InteractiveHeader(BasePydanticConfig):
-    type: Literal["text", "video", "image", "document"]
-    text: Optional[str] = Field(default=None, max_length=60)
-    image: Optional[MediaHeaderContent] = None
-    video: Optional[MediaHeaderContent] = None
-    document: Optional[MediaHeaderContent] = None
-
-    @model_validator(mode='after')
-    def check_content_matches_type(self):
-        type_to_field = {
-            'text': 'text',
-            'image': 'image',
-            'video': 'video',
-            'document': 'document'
-        }
-        field_name = type_to_field.get(self.type)
-        if not field_name or getattr(self, field_name) is None:
-            raise ValueError(f"For header type '{self.type}', the '{field_name}' field must be provided.")
-        # Ensure other fields are None to prevent sending invalid payloads
-        for t, f in type_to_field.items():
-            if t != self.type and getattr(self, f) is not None:
-                raise ValueError(f"For header type '{self.type}', only the '{field_name}' field should be provided, not '{f}'.")
-        return self
-
-class InteractiveBody(BasePydanticConfig):
-    text: str = Field(..., min_length=1, max_length=1024)
-
-class InteractiveFooter(BasePydanticConfig):
-    text: str = Field(..., min_length=1, max_length=60)
-
-class InteractiveListRow(BasePydanticConfig):
-    id: str = Field(..., min_length=1, max_length=200)
-    title: str = Field(..., min_length=1, max_length=24)
-    description: Optional[str] = Field(default=None, max_length=72)
-
-class InteractiveListSection(BasePydanticConfig):
-    title: Optional[str] = Field(default=None, max_length=24)
-    rows: List[InteractiveListRow] = Field(..., min_items=1, max_items=10)
-
-class InteractiveListAction(BasePydanticConfig):
-    button: str = Field(..., min_length=1, max_length=20) # Button text
-    sections: List[InteractiveListSection] = Field(..., min_items=1) # Max 10 sections by WA
-
-# Forward reference for InteractiveMessagePayload
-# This needs to be defined before it's used in Union, or use strings and update_forward_refs
-class InteractiveMessagePayload(BasePydanticConfig):
-    type: Literal["button", "list", "product", "product_list"]
-    header: Optional[InteractiveHeader] = None
-    body: InteractiveBody
-    footer: Optional[InteractiveFooter] = None
-    action: Union[InteractiveButtonAction, InteractiveListAction] # Corrected forward reference handling for Pydantic v2
-    # TODO: Add action types for product/product_list
-
-# For Pydantic v1 it was InteractiveMessagePayload.update_forward_refs()
-# For Pydantic v2, model_rebuild() is typically called after all dependent models are defined
-# if there are circular dependencies or complex forward refs.
-# It's often implicitly handled, but explicit call can be useful.
-# InteractiveMessagePayload.model_rebuild() # Call if issues arise with Union resolution
-
-class TemplateLanguage(BasePydanticConfig):
-    code: str # e.g., "en_US", "en"
-
-class TemplateParameter(BasePydanticConfig):
-    type: Literal["text", "currency", "date_time", "image", "document", "video", "payload"]
-    text: Optional[str] = None
-    currency: Optional[Dict[str, Any]] = None
-    date_time: Optional[Dict[str, Any]] = None
-    image: Optional[Dict[str, Any]] = None
-    document: Optional[Dict[str, Any]] = None
-    video: Optional[Dict[str, Any]] = None
-    payload: Optional[str] = None
-
-class TemplateComponent(BasePydanticConfig):
-    type: Literal["header", "body", "button"]
-    sub_type: Optional[Literal['url', 'quick_reply', 'call_button', 'catalog_button', 'mpm_button']] = None
-    parameters: Optional[List[TemplateParameter]] = None
-    index: Optional[int] = None
-
-class TemplateMessageContent(BasePydanticConfig):
-    name: str
-    language: TemplateLanguage
-    components: Optional[List[TemplateComponent]] = None
-
-class ContactName(BasePydanticConfig):
-    formatted_name: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    middle_name: Optional[str] = None
-    suffix: Optional[str] = None
-    prefix: Optional[str] = None
-
-class ContactAddress(BasePydanticConfig):
-    street: Optional[str] = None
-    city: Optional[str] = None
-    state: Optional[str] = None
-    zip: Optional[str] = None
-    country: Optional[str] = None
-    country_code: Optional[str] = None
-    type: Optional[Literal['HOME', 'WORK']] = None
-
-class ContactEmail(BasePydanticConfig):
-    email: Optional[str] = None
-    type: Optional[Literal['HOME', 'WORK']] = None
-
-class ContactPhone(BasePydanticConfig):
-    phone: Optional[str] = None
-    type: Optional[Literal['CELL', 'MAIN', 'IPHONE', 'HOME', 'WORK']] = None
-    wa_id: Optional[str] = None
-
-class ContactOrg(BasePydanticConfig):
-    company: Optional[str] = None
-    department: Optional[str] = None
-    title: Optional[str] = None
-
-class ContactUrl(BasePydanticConfig):
-    url: Optional[str] = None
-    type: Optional[Literal['HOME', 'WORK']] = None
-
-class ContactObject(BasePydanticConfig):
-    addresses: Optional[List[ContactAddress]] = None
-    birthday: Optional[str] = None
-    emails: Optional[List[ContactEmail]] = None
-    name: ContactName
-    org: Optional[ContactOrg] = None
-    phones: Optional[List[ContactPhone]] = None
-    urls: Optional[List[ContactUrl]] = None
-
-class LocationMessageContent(BasePydanticConfig):
-    longitude: float
-    latitude: float
-    name: Optional[str] = None
-    address: Optional[str] = None
-
-class StepConfigSendMessage(BasePydanticConfig):
-    message_type: Literal["text", "image", "document", "audio", "video", "sticker", "interactive", "template", "contacts", "location"]
-    text: Optional[TextMessageContent] = None
-    image: Optional[MediaMessageContent] = None
-    document: Optional[MediaMessageContent] = None
-    audio: Optional[MediaMessageContent] = None
-    video: Optional[MediaMessageContent] = None
-    sticker: Optional[MediaMessageContent] = None
-    interactive: Optional[InteractiveMessagePayload] = None
-    template: Optional[TemplateMessageContent] = None
-    contacts: Optional[List[ContactObject]] = None
-    location: Optional[LocationMessageContent] = None
-
-    @model_validator(mode='after')
-    def check_payload_exists_for_type(self):
-        msg_type = self.message_type
-        payload_specific_to_type = getattr(self, msg_type, None)
-        if payload_specific_to_type is None:
-            raise ValueError(f"Payload for message_type '{msg_type}' is missing or null.")
-        if msg_type == 'interactive' and self.interactive:
-            if not self.interactive.type:
-                raise ValueError("For 'interactive' messages, the 'interactive' payload must exist and specify its own 'type' (e.g., 'button', 'list').")
-        return self
-
-class ReplyConfig(BasePydanticConfig):
-    save_to_variable: str
-    expected_type: Literal["text", "email", "number", "interactive_id", "image"]
-    validation_regex: Optional[str] = None
-
-class FallbackConfig(BasePydanticConfig):
-    action: Literal["re_prompt", "human_handover"] = "re_prompt"
-    max_retries: int = Field(1, ge=0)
-    re_prompt_message_text: Optional[str] = None
-    fallback_message_text: Optional[str] = None
-    handover_after_message: bool = False
-    pre_handover_message_text: Optional[str] = None
-
-class StepConfigQuestion(BasePydanticConfig):
-    message_config: StepConfigSendMessage
-    reply_config: ReplyConfig
-    fallback_config: Optional[FallbackConfig] = None
-
-class ActionItemConfig(BasePydanticConfig):
-    action_type: Literal["set_context_variable", "update_contact_field", "update_member_profile", "record_payment", "record_prayer_request", "send_admin_notification", "query_model", "initiate_paynow_giving_payment"]
-    variable_name: Optional[str] = None
-    value_template: Optional[Any] = None
-    field_path: Optional[str] = None
-    fields_to_update: Optional[Dict[str, Any]] = None
-    # Fields for 'record_payment'
-    amount_template: Optional[str] = None
-    payment_type_template: Optional[str] = None
-    payment_method_template: Optional[str] = None
-    currency_template: Optional[str] = None
-    notes_template: Optional[str] = None
-    transaction_ref_template: Optional[str] = None
-    status_template: Optional[str] = None
-    proof_of_payment_wamid_template: Optional[str] = None
-    # Fields for 'initiate_paynow_giving_payment'
-    phone_number_template: Optional[str] = None
-    email_template: Optional[str] = None
-    # Fields for 'record_prayer_request'
-    request_text_template: Optional[str] = None
-    category_template: Optional[str] = None
-    is_anonymous_template: Optional[Any] = None
-    submitted_as_member_template: Optional[Any] = None
-    # Fields for 'send_admin_notification'
-    message_template: Optional[str] = None
-    # Fields for 'query_model'
-    app_label: Optional[str] = None
-    model_name: Optional[str] = None
-    filters_template: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    order_by: Optional[List[str]] = Field(default_factory=list)
-    limit: Optional[int] = None
-
-    @model_validator(mode='after')
-    def check_action_fields(self):
-        action_type = self.action_type
-        if action_type == 'set_context_variable':
-            if self.variable_name is None or self.value_template is None:
-                raise ValueError("For set_context_variable, 'variable_name' and 'value_template' are required.")
-        elif action_type == 'update_contact_field':
-            if not self.field_path or self.value_template is None:
-                raise ValueError("For update_contact_field, 'field_path' and 'value_template' are required.")
-        elif action_type == 'update_member_profile':
-            if not self.fields_to_update or not isinstance(self.fields_to_update, dict):
-                raise ValueError("For update_member_profile, 'fields_to_update' (a dictionary) is required.")
-        elif action_type == 'record_payment':
-            if self.amount_template is None or self.payment_type_template is None:
-                raise ValueError("For record_payment, 'amount_template' and 'payment_type_template' are required.")
-        elif action_type == 'initiate_paynow_giving_payment':
-            if self.amount_template is None or self.phone_number_template is None:
-                raise ValueError("For initiate_paynow_giving_payment, 'amount_template' and 'phone_number_template' are required.")
-        elif action_type == 'record_prayer_request':
-            if self.request_text_template is None:
-                raise ValueError("For record_prayer_request, 'request_text_template' is required.")
-        elif action_type == 'send_admin_notification':
-            if self.message_template is None:
-                raise ValueError("For send_admin_notification, 'message_template' is required.")
-        elif action_type == 'query_model':
-            if not self.app_label or not self.model_name or not self.variable_name:
-                raise ValueError("For query_model, 'app_label', 'model_name', and 'variable_name' are required.")
-        return self
-
-class StepConfigAction(BasePydanticConfig):
-    actions_to_run: List[ActionItemConfig] = Field(default_factory=list)
-
-class StepConfigHumanHandover(BasePydanticConfig):
-    pre_handover_message_text: Optional[str] = None
-    notification_details: Optional[str] = None
-
-class StepConfigEndFlow(BasePydanticConfig):
-    message_config: Optional[StepConfigSendMessage] = None
-
-class StepConfigSwitchFlow(BasePydanticConfig):
-    target_flow_name: str
-    initial_context_template: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    trigger_keyword_to_pass: Optional[str] = None
-
-# Rebuild InteractiveMessagePayload if it had forward references to models defined after it
-InteractiveMessagePayload.model_rebuild()
 
 def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, contact: Contact) -> Any:
     """
@@ -412,7 +138,7 @@ def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, c
     elif source_object_name == 'contact':
         current_value = contact
         path_to_traverse = parts[1:]
-    elif source_object_name == 'customer_profile':
+    elif source_object_name == 'customer_profile': # Corrected from member_profile
         try:
             current_value = contact.customer_profile # Access related object via Django ORM
             path_to_traverse = parts[1:]
@@ -523,6 +249,26 @@ def _clear_contact_flow_state(contact: Contact, error: bool = False):
     deleted_count, _ = ContactFlowState.objects.filter(contact=contact).delete()
     if deleted_count > 0:        
         logger.info(f"Contact {contact.id}: Cleared flow state ({contact.whatsapp_id})." + (" Due to an error." if error else ""))
+
+def _initiate_paynow_giving_payment(contact: Contact, amount_str: str, payment_type: str, payment_method: str, phone_number: str, email: str, currency: str, notes: str) -> dict:
+    """
+    Placeholder for initiating a Paynow payment.
+    This function should be implemented with the actual Paynow integration logic.
+    """
+    logger.warning(
+        f"Placeholder function '_initiate_paynow_giving_payment' called for contact {contact.id}. "
+        f"Amount: {amount_str}, Phone: {phone_number}. "
+        "This should be replaced with actual Paynow integration logic."
+    )
+    # In a real implementation, you would:
+    # 1. Call the PaynowService to create a transaction.
+    # 2. Get a response from Paynow.
+    # 3. Update the context with the result.
+    # For now, we simulate a success.
+    return {
+        "paynow_initiation_success": True,
+        "paynow_initiation_error": None
+    }
 
 def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, is_re_execution: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     actions_to_perform = []
@@ -649,6 +395,13 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             action_step_config = StepConfigAction.model_validate(raw_step_config)
             for action_item_conf in action_step_config.actions_to_run:
                 action_type = action_item_conf.action_type
+                # Handle custom actions registered in flow_action_registry
+                custom_action_func = flow_action_registry.get(action_type)
+                if custom_action_func:
+                    resolved_params = _resolve_value(action_item_conf.params_template or {}, current_step_context, contact)
+                    custom_actions = custom_action_func(contact, current_step_context, resolved_params)
+                    actions_to_perform.extend(custom_actions)
+                    continue # Skip default handling if it's a custom action
                 if action_type == 'set_context_variable' and action_item_conf.variable_name is not None:
                     resolved_value = _resolve_value(action_item_conf.value_template, current_step_context, contact)
                     current_step_context[action_item_conf.variable_name] = resolved_value
@@ -656,9 +409,9 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                 elif action_type == 'update_contact_field' and action_item_conf.field_path is not None:
                     resolved_value = _resolve_value(action_item_conf.value_template, current_step_context, contact)
                     _update_contact_data(contact, action_item_conf.field_path, resolved_value)
-                elif action_type == 'update_member_profile' and action_item_conf.fields_to_update is not None:
-                    resolved_fields_to_update = _resolve_value(action_item_conf.fields_to_update, current_step_context, contact)
-                    _update_member_profile_data(contact, resolved_fields_to_update, current_step_context)
+                elif action_type == 'update_customer_profile' and action_item_conf.fields_to_update is not None: # Corrected action name
+                    resolved_fields_to_update = _resolve_value(action_item_conf.fields_to_update, current_step_context, contact) # type: ignore
+                    _update_customer_profile_data(contact, resolved_fields_to_update, current_step_context) # Corrected function name
                 elif action_type == 'record_payment':
                     amount_str = _resolve_value(action_item_conf.amount_template, current_step_context, contact)
                     payment_type = _resolve_value(action_item_conf.payment_type_template, current_step_context, contact)
@@ -690,7 +443,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                         logger.error(f"Contact {contact.id}: Action in step {step.id} failed to record payment for amount '{amount_str}'.")
                 
                 elif action_type == 'initiate_paynow_giving_payment':
-                    amount_str = _resolve_value(action_item_conf.amount_template, current_step_context, contact)
+                    amount_str = _resolve_value(action_item_conf.amount_template, current_step_context, contact) # type: ignore
                     payment_type = _resolve_value(action_item_conf.payment_type_template, current_step_context, contact)
                     payment_method = _resolve_value(action_item_conf.payment_method_template, current_step_context, contact)
                     phone_number = _resolve_value(action_item_conf.phone_number_template, current_step_context, contact)
@@ -752,7 +505,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                     
                     try:
                         Model = apps.get_model(app_label, model_name)
-                        
+
                         filters = _resolve_value(action_item_conf.filters_template, current_step_context, contact)
                         if not isinstance(filters, dict):
                             logger.warning(f"Contact {contact.id}: 'filters_template' for query_model did not resolve to a dictionary. Using empty filters. Resolved value: {filters}")
@@ -1300,6 +1053,11 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
         profile.save(update_fields=changed_fields)
         logger.info(f"CustomerProfile for {contact.whatsapp_id} updated fields: {changed_fields}")
 
+# --- Register Custom Actions ---
+# This allows your flow definitions to use custom actions like "create_opportunity".
+# This should be done when the app is ready, typically in apps.py.
+flow_action_registry.register('create_opportunity', create_opportunity)
+
 
 # --- Main Service Function (process_message_for_flow) ---
 # This is the function that should be imported by meta_integration/views.py
@@ -1312,8 +1070,8 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
     # --- Performance Optimization ---
     # Eagerly load the related member_profile to prevent N+1 queries during template/condition resolution.
     # This is a safe way to ensure the profile is available without modifying the calling view.
-    try:
-        contact = Contact.objects.select_related('member_profile').get(pk=contact.pk)
+    try: # Corrected from member_profile to customer_profile
+        contact = Contact.objects.select_related('customer_profile').get(pk=contact.pk)
     except Contact.DoesNotExist:
         # This should theoretically not happen if the contact was just created/retrieved, but it's a safe guard.
         logger.error(f"Contact with pk={contact.pk} not found at start of flow processing. Aborting.")
@@ -1351,7 +1109,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 else:
                     # No flow was triggered, so we are done.
                     break 
-
+            
             current_step = contact_flow_state.current_step
             flow_context = contact_flow_state.flow_context_data if contact_flow_state.flow_context_data is not None else {}
 
@@ -1366,7 +1124,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 if is_internal_message:
                     logger.debug(f"Reached question step '{current_step.name}' via internal transition. Breaking loop to await user reply.")
                     break
-                is_pass_through_step = False # A question is NOT a pass-through step; it must wait for a reply.
+                # A question is NOT a pass-through step; it must wait for a reply.
                 question_expectation = flow_context['_question_awaiting_reply_for']
                 variable_to_save_name = question_expectation.get('variable_name')
                 expected_reply_type = question_expectation.get('expected_type')
@@ -1417,7 +1175,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                     flow_context.pop('_question_awaiting_reply_for', None)
                     flow_context.pop('_fallback_count', None)
                 else:
-                    logger.info(f"Reply for question step '{current_step.name}' was not valid. Expected: {expected_reply_type}")
+                    logger.info(f"Reply for question step '{current_step.name}' was not valid. Expected: {expected_reply_type}. User text: {user_text}. Interactive ID: {interactive_reply_id}")
 
             # --- Step 2: Evaluate transitions from the current step ---
             transitions = FlowTransition.objects.filter(current_step=current_step).select_related('next_step').order_by('priority')
@@ -1430,8 +1188,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
             
             if next_step_to_transition_to:
                 actions, flow_context = _transition_to_step(contact_flow_state, next_step_to_transition_to, flow_context, contact, message_data)
-                
-                # Check for a switch_flow command specifically to handle it within the loop
+                # Check for a switch_flow command specifically to handle it within the loop.
                 switch_action = next((a for a in actions if a.get('type') == '_internal_command_switch_flow'), None)
                 if switch_action:
                     logger.info(f"Contact {contact.id}: Processing internal command to switch flow within the main loop.")
@@ -1457,7 +1214,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                             started_at=timezone.now()
                         )
 
-                        # --- FIX: Manually execute the actions for the new entry point step ---
+                        # Manually execute the actions for the new entry point step.
                         # This ensures that 'action' steps at the start of a flow are run immediately
                         # after a switch, before the loop continues to evaluate transitions.
                         entry_actions, updated_context = _execute_step_actions(
@@ -1469,8 +1226,8 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                         new_contact_flow_state.flow_context_data = updated_context
                         new_contact_flow_state.save(update_fields=['flow_context_data', 'last_updated_at'])
                         logger.debug(f"Contact {contact.id}: Executed entry step '{entry_point_step.name}' and saved context.")
-
-                        # --- FIX: Check if the new entry point immediately ended the flow ---
+                        
+                        # Check if the new entry point immediately ended the flow.
                         # If so, break the main loop to allow the clear_state command to be processed.
                         if any(action.get('type') == '_internal_command_clear_flow_state' for action in entry_actions):
                             break
@@ -1492,7 +1249,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                         break # Exit loop on failure
                 else:
                     # No switch command, so process actions normally and check for other control commands
-                    actions_to_perform.extend(actions)
+                    actions_to_perform.extend(actions) # Add actions from the transitioned step
                     if any(action.get('type') == '_internal_command_clear_flow_state' for action in actions):
                         break # Exit the while loop for end_flow or human_handover
 
@@ -1501,7 +1258,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 fallback_actions = _handle_fallback(current_step, contact, flow_context, contact_flow_state)
                 actions_to_perform.extend(fallback_actions)
                 break # Fallback always breaks the loop
-
+            
             # --- Step 3: Loop Control ---
             # If the new step is a question, or if the flow state was cleared (e.g., end_flow), break the loop.
             new_state = ContactFlowState.objects.filter(contact=contact).first()
@@ -1529,7 +1286,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
     final_actions_for_meta_view = []
     for action in actions_to_perform: # actions_to_perform could be modified by switch_flow
         if action.get('type') == '_internal_command_clear_flow_state':
-            # --- FIX: Actually clear the state when the command is processed. ---
+            # Actually clear the state when the command is processed.
             _clear_contact_flow_state(contact)
             logger.debug(f"Contact {contact.id}: Processed internal command to clear flow state.")
         elif action.get('type') == 'send_whatsapp_message': # Only pass valid message actions
