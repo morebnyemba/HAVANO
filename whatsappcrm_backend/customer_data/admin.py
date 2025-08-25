@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import CustomerProfile, Interaction
+from .models import CustomerProfile, Interaction, Opportunity
 
 class InteractionInline(admin.TabularInline):
     """
@@ -82,3 +82,18 @@ class InteractionAdmin(admin.ModelAdmin):
             'fields': ('notes', 'created_at')
         }),
     )
+
+@admin.register(Opportunity)
+class OpportunityAdmin(admin.ModelAdmin):
+    list_display = ('name', 'customer', 'stage', 'amount', 'currency', 'assigned_agent', 'expected_close_date')
+    list_filter = ('stage', 'assigned_agent', 'currency', 'expected_close_date')
+    search_fields = ('name', 'customer__first_name', 'customer__last_name', 'customer__company')
+    autocomplete_fields = ['customer', 'assigned_agent', 'products', 'services']
+    list_editable = ('stage', 'amount')
+    date_hierarchy = 'created_at'
+    fieldsets = (
+        (None, {'fields': ('name', 'customer', 'assigned_agent')}),
+        ('Deal Details', {'fields': ('stage', ('amount', 'currency'), 'expected_close_date')}),
+        ('Associated Items', {'fields': ('products', 'services')}),
+    )
+    list_select_related = ('customer', 'assigned_agent')

@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     'conversations.apps.ConversationsConfig',
     'flows.apps.FlowsConfig',
     'customer_data.apps.CustomerDataConfig',
+    'products_and_services.apps.ProductsAndServicesConfig',
     
 ]
 
@@ -315,6 +316,11 @@ JAZZMIN_SETTINGS = {
         "customer_data.Interaction": "fas fa-handshake",
         "customer_data.Payment": "fas fa-money-bill-wave",
         "customer_data.PrayerRequest": "fas fa-praying-hands",
+        "customer_data.Opportunity": "fas fa-dollar-sign",
+        "products_and_services": "fas fa-shopping-cart",
+        "products_and_services.ProductCategory": "fas fa-tags",
+        "products_and_services.Product": "fas fa-box-open",
+        "products_and_services.Service": "fas fa-concierge-bell",
     },
     "default_icon_parents": "fas fa-chevron-circle-right",
     "default_icon_children": "fas fa-circle",

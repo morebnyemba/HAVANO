@@ -1,9 +1,16 @@
 # whatsappcrm_backend/conversations/serializers.py
 
-from datetime import timezone
 from rest_framework import serializers
+from django.utils import timezone
+from django.db import transaction
+import logging
+
 from .models import Contact, Message, Broadcast, BroadcastRecipient
-from customer_data.serializers import MemberProfileSerializer
+from customer_data.serializers import CustomerProfileSerializer # Corrected import
+from meta_integration.tasks import send_whatsapp_message_task
+from meta_integration.models import MetaAppConfig
+
+logger = logging.getLogger(__name__)
 
 class ContactSerializer(serializers.ModelSerializer):
     """
@@ -74,30 +81,29 @@ class MessageSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         # This create method is for when your frontend POSTs to /crm-api/conversations/messages/
-        # to send an outgoing message.
-        # The actual sending via WhatsApp API should be handled by a Celery task
-        # triggered from the MessageViewSet's perform_create method.
+        # to send an outgoing message, for example, from an agent in the CRM UI.
 
         # Set defaults for outgoing messages created via API
         validated_data['direction'] = 'out'
-        validated_data['status'] = 'pending_dispatch' # Or 'pending_send'
+        validated_data['status'] = 'pending_dispatch'
         if 'timestamp' not in validated_data:
-             validated_data['timestamp'] = timezone.now()
+            validated_data['timestamp'] = timezone.now()
 
-        message = Message.objects.create(**validated_data)
-        
-        # Trigger Celery task to send the message
-        # from meta_integration.tasks import send_whatsapp_message_task
-        # from meta_integration.models import MetaAppConfig
-        # active_config = MetaAppConfig.objects.get_active_config() # Or pass config_id
-        # if active_config:
-        #     send_whatsapp_message_task.delay(message.id, active_config.id)
-        # else:
-        #     logger.error(f"No active MetaAppConfig found. Message {message.id} cannot be dispatched.")
-        #     message.status = 'failed'
-        #     message.error_details = {'error': 'No active MetaAppConfig for sending.'}
-        #     message.save()
-            
+        # Use a transaction to ensure the message is created before the task is scheduled.
+        with transaction.atomic():
+            message = Message.objects.create(**validated_data)
+            active_config = MetaAppConfig.objects.get_active_config()
+            if active_config:
+                # Use on_commit to ensure the task is only queued if the DB transaction succeeds.
+                transaction.on_commit(
+                    lambda: send_whatsapp_message_task.delay(message.id, active_config.id)
+                )
+            else:
+                logger.error(f"No active MetaAppConfig found. Message {message.id} cannot be dispatched.")
+                message.status = 'failed'
+                message.error_details = {'error': 'No active MetaAppConfig for sending.'}
+                message.save(update_fields=['status', 'error_details'])
+
         return message
 
 class MessageListSerializer(MessageSerializer):
@@ -148,11 +154,6 @@ class MessageListSerializer(MessageSerializer):
                 return f"List Selection: {obj.content_payload['list_reply'].get('title', obj.content_payload['list_reply'].get('id'))}"
             return f"Interactive: {interactive_type or 'message'}"
         
-        if obj.message_type == 'button': # This is for user's button *reply*
-             if isinstance(obj.content_payload, dict) and obj.content_payload.get('button', {}).get('text'):
-                 return f"Button Reply: {obj.content_payload['button']['text']}"
-             return "Button Reply"
-
         if obj.message_type == 'system' and isinstance(obj.content_payload, dict) and obj.content_payload.get('system', {}).get('body'):
             return f"System: {obj.content_payload['system']['body']}"
 
@@ -178,10 +179,11 @@ class ContactDetailSerializer(ContactSerializer):
     Contact serializer that includes the nested CustomerProfile 
     and a list of recent messages for detailed views.
     """
-    # The `source` attribute points to the related model manager on the Contact model.
-    # `member_profile` is the likely `related_name` from a OneToOneField on MemberProfile.
-    customer_profile = MemberProfileSerializer(source='member_profile', read_only=True)
-    # The `source` for recent_messages should be 'messages' to use the Prefetch from the view.
+    # Use the correct serializer. The field name 'customer_profile' matches the
+    # related_name on the Contact model, so 'source' is not needed.
+    customer_profile = CustomerProfileSerializer(read_only=True)
+    # The view must prefetch the related messages into an attribute named 'messages'.
+    # e.g., .prefetch_related('messages')
     recent_messages = MessageListSerializer(many=True, read_only=True, source='messages')
 
     class Meta(ContactSerializer.Meta):

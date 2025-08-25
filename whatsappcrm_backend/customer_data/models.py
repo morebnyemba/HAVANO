@@ -7,6 +7,9 @@ from django.utils import timezone
 from conversations.models import Contact
 import uuid
 
+# Import models from other apps to create relationships
+from products_and_services.models import Product, Service
+
 class LeadStatus(models.TextChoices):
     """Defines the choices for the lead status in the sales pipeline."""
     NEW = 'new', _('New')
@@ -196,3 +199,58 @@ class Interaction(models.Model):
         verbose_name = _("Interaction")
         verbose_name_plural = _("Interactions")
         ordering = ['-created_at']
+
+
+class Opportunity(models.Model):
+    """
+    Represents a potential deal or sale with a customer, linking them to
+    specific products or services from the catalog.
+    """
+    class Stage(models.TextChoices):
+        PROSPECTING = 'prospecting', _('Prospecting')
+        QUALIFICATION = 'qualification', _('Qualification')
+        PROPOSAL = 'proposal', _('Proposal')
+        NEGOTIATION = 'negotiation', _('Negotiation')
+        CLOSED_WON = 'closed_won', _('Closed Won')
+        CLOSED_LOST = 'closed_lost', _('Closed Lost')
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(_("Opportunity Name"), max_length=255, help_text=_("e.g., 'Q3 Website Redesign Project'"))
+    customer = models.ForeignKey(
+        CustomerProfile,
+        on_delete=models.CASCADE,
+        related_name='opportunities'
+    )
+    stage = models.CharField(
+        _("Stage"),
+        max_length=50,
+        choices=Stage.choices,
+        default=Stage.PROSPECTING,
+        db_index=True
+    )
+    amount = models.DecimalField(_("Amount"), max_digits=12, decimal_places=2, help_text=_("The estimated or actual value of the deal."))
+    currency = models.CharField(_("Currency"), max_length=3, default='USD')
+    expected_close_date = models.DateField(_("Expected Close Date"), null=True, blank=True)
+    
+    # Links to the catalog
+    products = models.ManyToManyField(Product, blank=True, related_name='opportunities')
+    services = models.ManyToManyField(Service, blank=True, related_name='opportunities')
+
+    assigned_agent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='opportunities'
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} for {self.customer}"
+
+    class Meta:
+        verbose_name = _("Opportunity")
+        verbose_name_plural = _("Opportunities")
+        ordering = ['-updated_at']

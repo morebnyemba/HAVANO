@@ -15,12 +15,12 @@ from .serializers import (
     ContactSerializer,
     MessageSerializer,
     MessageListSerializer,
-    ContactDetailSerializer,
     ContactListSerializer,
+    ContactDetailSerializer,
     BroadcastCreateSerializer,
+    BroadcastSerializer,
 )
-# For dispatching Celery task
-from meta_integration.tasks import send_whatsapp_message_task
+from .tasks import dispatch_broadcast_task
 # To get active MetaAppConfig for sending
 from meta_integration.models import MetaAppConfig
 # To personalize messages using flow template logic
@@ -37,6 +37,19 @@ class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS: # GET, HEAD, OPTIONS
             return True
+        return request.user and request.user.is_staff
+
+class CanCreateMessagesOrAdminOnly(permissions.BasePermission):
+    """
+    Allows any authenticated user to create (POST) a message,
+    but restricts list, retrieve, update, and delete to admin/staff users.
+    """
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method == 'POST': # Allow any authenticated user to create
+            return True
+        # For all other methods (GET, PUT, PATCH, DELETE), require staff status
         return request.user and request.user.is_staff
 
 
@@ -165,7 +178,7 @@ class MessageViewSet(
     viewsets.GenericViewSet
 ):
     queryset = Message.objects.all().select_related('contact').order_by('-timestamp')
-    permission_classes = [permissions.IsAuthenticated, IsAdminOrReadOnly] # Adjust IsAdminOrReadOnly if non-staff should create messages
+    permission_classes = [permissions.IsAuthenticated, CanCreateMessagesOrAdminOnly]
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -193,38 +206,12 @@ class MessageViewSet(
             f"by user {self.request.user}. Type: {message.message_type}. Status: {message.status}."
         )
 
-        try:
-            # Fetch the active MetaAppConfig to get credentials for sending
-            # This assumes MetaAppConfig has a manager method get_active_config()
-            active_config = MetaAppConfig.objects.get_active_config()
-            
-            if active_config:
-                logger.info(f"Dispatching Celery task send_whatsapp_message_task for Message ID: {message.id} using Config ID: {active_config.id}")
-                send_whatsapp_message_task.delay(message.id, active_config.id)
-                # The message status will be updated by the Celery task (e.g., to 'sent' or 'failed')
-            else:
-                logger.error(f"No active MetaAppConfig found. Message {message.id} for contact {message.contact.whatsapp_id} cannot be dispatched.")
-                message.status = 'failed'
-                message.error_details = {'error': 'No active MetaAppConfig was found for sending this message.'}
-                message.status_timestamp = timezone.now()
-                message.save(update_fields=['status', 'error_details', 'status_timestamp'])
-        
-        except MetaAppConfig.DoesNotExist:
-            logger.critical(f"CRITICAL: No MetaAppConfig marked as active. Message {message.id} cannot be dispatched.")
-            message.status = 'failed'; message.error_details = {'error': 'No active MetaAppConfig available.'}
-            message.status_timestamp = timezone.now()
-            message.save(update_fields=['status', 'error_details', 'status_timestamp'])
-        except MetaAppConfig.MultipleObjectsReturned:
-            logger.critical(f"CRITICAL: Multiple active MetaAppConfigs found. Message {message.id} cannot be dispatched reliably.")
-            message.status = 'failed'; message.error_details = {'error': 'Multiple active MetaAppConfigs found.'}
-            message.status_timestamp = timezone.now()
-            message.save(update_fields=['status', 'error_details', 'status_timestamp'])
-        except Exception as e:
-            logger.error(f"Error dispatching Celery task for Message ID {message.id}: {e}", exc_info=True)
-            message.status = 'failed'
-            message.error_details = {'error': f'Failed to dispatch send task: {str(e)}'}
-            message.status_timestamp = timezone.now()
-            message.save(update_fields=['status', 'error_details', 'status_timestamp'])
+        # The logic for dispatching the message has been moved to the MessageSerializer's
+        # create method for better encapsulation. The serializer now handles finding the
+        # active config and queueing the Celery task transactionally.
+        # This keeps the view cleaner and focused on handling the request/response cycle.
+        # No further action is needed here.
+        pass
 
 
     def get_queryset(self):
@@ -256,55 +243,34 @@ class BroadcastViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], url_path='send-template')
     def send_template_message(self, request):
         """
-        Receives a list of contact IDs and a template to send.
-        Creates personalized messages and queues them for sending.
+        Accepts a list of contact IDs and a template to send.
+        Creates a Broadcast object to track the campaign and dispatches a single
+        Celery task to handle the message creation and sending asynchronously.
         """
         serializer = BroadcastCreateSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         validated_data = serializer.validated_data
-        contact_ids = validated_data['contact_ids']
-        template_name = validated_data['template_name']
-        language_code = validated_data['language_code']
-        components_template = validated_data.get('components')
 
-        try:
-            active_config = MetaAppConfig.objects.get_active_config()
-            if not active_config:
-                raise Exception("No active Meta App Configuration found.")
-        except Exception as e:
-            logger.error(f"Broadcast failed: Could not get active Meta config. Error: {e}")
-            return Response({"error": "Server configuration error: " + str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        # Create the parent Broadcast object to track this campaign
+        broadcast = Broadcast.objects.create(
+            name=validated_data.get('name', f"Broadcast on {timezone.now().strftime('%Y-%m-%d %H:%M')}"),
+            template_name=validated_data['template_name'],
+            created_by=request.user,
+            status='pending',
+            total_recipients=len(validated_data['contact_ids'])
+        )
+        logger.info(f"Created Broadcast object {broadcast.id} for {broadcast.total_recipients} recipients.")
 
-        # Fetch all contacts and their profiles in a single query to be efficient
-        contacts_to_message = Contact.objects.filter(id__in=contact_ids).select_related('member_profile')
-        
-        dispatched_count = 0
-        for contact in contacts_to_message:
-            # Construct the payload for this specific contact
-            components = _resolve_value(components_template, {}, contact) if components_template else None
+        # Dispatch a single Celery task to handle the entire broadcast job
+        dispatch_broadcast_task.delay(
+            broadcast_id=broadcast.id,
+            contact_ids=validated_data['contact_ids'],
+            language_code=validated_data['language_code'],
+            components_template=validated_data.get('components')
+        )
 
-            content_payload = {
-                "name": template_name,
-                "language": {"code": language_code}
-            }
-            if components:
-                content_payload["components"] = components
-
-            # Create the Message object
-            message = Message.objects.create(
-                contact=contact, meta_app_config=active_config, direction='out',
-                message_type='template', content_payload=content_payload,
-                status='pending_dispatch', timestamp=timezone.now()
-            )
-
-            # Dispatch the Celery task for sending
-            send_whatsapp_message_task.delay(message.id, active_config.id)
-            dispatched_count += 1
-            logger.info(f"Dispatched template broadcast message {message.id} to contact {contact.id} ({contact.whatsapp_id})")
-
-        return Response({
-            "message": f"Broadcast dispatch initiated for {dispatched_count} of {len(contact_ids)} requested contacts.",
-        }, status=status.HTTP_202_ACCEPTED)
-        return queryset
+        # Immediately return the created Broadcast object to the client
+        response_serializer = BroadcastSerializer(broadcast)
+        return Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
