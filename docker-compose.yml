@@ -5,9 +5,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
-      POSTGRES_DB: ${DB_NAME:-whatsapp_crm_dev}
-      POSTGRES_USER: ${DB_USER:-crm_user}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?Please set DB_PASSWORD in .env file}
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     ports:
       - "5432:5432"
     restart: unless-stopped # Ensure that the DB restarts unless explicitly stopped
@@ -32,7 +32,7 @@ services:
       - staticfiles_volume:/app/staticfiles # Mount the static files volume (used by collectstatic)
       # Media files are now served from the 'mediafiles' subdirectory of the main app bind mount.
     env_file:
-      - ./whatsappcrm_backend/.env
+      - ./whatsappcrm_backend/.env.prod
     depends_on:
       - db
       - redis
@@ -52,7 +52,7 @@ services:
     volumes:
       - ./whatsappcrm_backend:/app
     env_file:
-      - ./whatsappcrm_backend/.env
+      - ./whatsappcrm_backend/.env.prod
     depends_on:
       - redis
       - db
@@ -65,7 +65,7 @@ services:
     volumes:
       - ./whatsappcrm_backend:/app
     env_file:
-      - ./whatsappcrm_backend/.env
+      - ./whatsappcrm_backend/.env.prod
     depends_on:
       - redis
       - db

@@ -26,8 +26,9 @@ DEBUG = os.getenv('DJANGO_DEBUG', 'True') == 'True' # Default to True for dev if
 # --- Allowed Hosts ---
 # Add your backend domain here. For WebSocket connections to work with
 # AllowedHostsOriginValidator, you must also include your frontend domain.
-ALLOWED_HOSTS_STRING = os.getenv('DJANGO_ALLOWED_HOSTS',
-    'localhost,127.0.0.1,crmbackend.lifeinternationalministries.com,crmfrontend.lifeinternationalministries.com'
+ALLOWED_HOSTS_STRING = os.getenv(
+    'DJANGO_ALLOWED_HOSTS',
+    'localhost,127.0.0.1,autochats.havano.online,apps1.havano.online'
 )
 ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STRING.split(',') if host.strip()]
 
@@ -36,7 +37,7 @@ ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_STRING.split(',') if hos
 # This is crucial for your React frontend to be able to log in and submit data.
 CSRF_TRUSTED_ORIGINS_STRING = os.getenv(
     'CSRF_TRUSTED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173,https://crmfrontend.lifeinternationalministries.com,https://crmbackend.lifeinternationalministries.com'
+    'http://localhost:5173,http://127.0.0.1:5173,https://apps1.havano.online,https://autochats.havano.online'
 )
 CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_STRING.split(',') if origin.strip()]
 
@@ -191,7 +192,7 @@ SIMPLE_JWT = {
 # This tells the browser that it's safe to accept cross-origin requests from your frontend.
 CORS_ALLOWED_ORIGINS_STRING = os.getenv(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173,https://crmfrontend.lifeinternationalministries.com'
+    'http://localhost:5173,http://127.0.0.1:5173,https://apps1.havano.online'
 )
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STRING.split(',') if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True
@@ -245,8 +246,8 @@ CHURCH_DETAILS = {
     'ADDRESS_LINE_1': os.getenv('CHURCH_ADDRESS_LINE_1', '123 Gospel Lane'),
     'ADDRESS_LINE_2': os.getenv('CHURCH_ADDRESS_LINE_2', 'Faith City, ZW'),
     'CONTACT_PHONE': os.getenv('CHURCH_CONTACT_PHONE', '+263 123 456789'),
-    'CONTACT_EMAIL': os.getenv('CHURCH_CONTACT_EMAIL', 'info@church.com'),
-    'WEBSITE': os.getenv('CHURCH_WEBSITE', 'www.lifeinternationalministries.com'),
+    'CONTACT_EMAIL': os.getenv('CHURCH_CONTACT_EMAIL', 'info@havano.online'),
+    'WEBSITE': os.getenv('CHURCH_WEBSITE', 'www.havano.online'),
     'MOTTO': os.getenv('CHURCH_MOTTO', 'Serving the Community with Faith'),
 }
 
@@ -347,9 +348,9 @@ JAZZMIN_UI_TWEAKS = {
 # Example .env content (should be in a separate .env file at project root):
 # DJANGO_SECRET_KEY="your-actual-strong-secret-key-here"
 # DJANGO_DEBUG="False" # Set to "False" for production
-# DJANGO_ALLOWED_HOSTS="crmbackend.lifeinternationalministries.com,localhost,127.0.0.1"
-# CSRF_TRUSTED_ORIGINS="https://crmfrontend.lifeinternationalministries.com,http://localhost:5173"
-# CORS_ALLOWED_ORIGINS="https://crmfrontend.lifeinternationalministries.com,http://localhost:5173"
+# DJANGO_ALLOWED_HOSTS="autochats.havano.online,apps1.havano.online,localhost,127.0.0.1"
+# CSRF_TRUSTED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
+# CORS_ALLOWED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
 # CELERY_BROKER_URL="redis://localhost:6379/0"
 # CELERY_RESULT_BACKEND="redis://localhost:6379/1"
 # DB_ENGINE="django.db.backends.postgresql" # Or your preferred DB
