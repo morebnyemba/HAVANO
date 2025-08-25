@@ -2,9 +2,11 @@
 from django.utils import timezone
 from datetime import timedelta
 from django.db.models import Count, Q
+from django.db.models import Sum
 from django.db.models.functions import TruncDate
 
 from conversations.models import Contact, Message
+from customer_data.models import Opportunity
 
 def get_stats_card_data():
     """Calculates and returns data for the main stats cards."""
@@ -13,6 +15,11 @@ def get_stats_card_data():
     four_hours_ago = now - timedelta(hours=4)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    # Calculate value of open opportunities
+    open_opportunities_value = Opportunity.objects.filter(
+        stage__in=['prospecting', 'qualification', 'proposal', 'negotiation']
+    ).aggregate(total_value=Sum('amount'))['total_value'] or 0
+
     return {
         'messages_sent_24h': Message.objects.filter(direction='out', timestamp__gte=twenty_four_hours_ago).count(),
         'messages_received_24h': Message.objects.filter(direction='in', timestamp__gte=twenty_four_hours_ago).count(),
@@ -20,6 +27,8 @@ def get_stats_card_data():
         'new_contacts_today': Contact.objects.filter(first_seen__gte=today_start).count(),
         'total_contacts': Contact.objects.count(),
         'pending_human_handovers': Contact.objects.filter(needs_human_intervention=True).count(),
+        'open_opportunities_value': f"{open_opportunities_value:,.2f}",
+        'new_opportunities_today': Opportunity.objects.filter(created_at__gte=today_start).count(),
     }
 
 def get_conversation_trends_chart_data():

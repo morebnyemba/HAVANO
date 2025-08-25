@@ -923,7 +923,7 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
     if message_data.get('type') == 'text':
         message_text_body = message_data.get('text', {}).get('body', '').lower().strip()
 
-    triggered_flow = None
+    triggered_flow = None    
     active_flows = Flow.objects.filter(is_active=True).order_by('name')
 
     if message_text_body:  # Only attempt keyword trigger if there's text
@@ -931,7 +931,10 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
             if isinstance(flow_candidate.trigger_keywords, list):
                 for keyword in flow_candidate.trigger_keywords:
                     # Ensure keyword is a non-empty string before lowercasing
-                    if isinstance(keyword, str) and keyword.strip() and keyword.strip().lower() in message_text_body:
+                    if (flow_candidate.trigger_keywords and # Checks if there are trigger_keywords
+                            isinstance(keyword, str) and keyword.strip() and 
+                            keyword.strip().lower() in message_text_body and # Then normal process continues if there are trigger_keywords
+                            (not contact.flow_state)): # Flow has not started
                         triggered_flow = flow_candidate
                         logger.info(f"Keyword '{keyword}' triggered flow '{flow_candidate.name}' for contact {contact.whatsapp_id}.")
                         break
@@ -960,6 +963,16 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
     else:
         logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
         return False # No flow triggered
+    elif not contact.flow_state:
+        lead_gen_flow = Flow.objects.filter(name = "lead_generation", is_active = True).first()
+        entry_point_step = FlowStep.objects.filter(flow=lead_gen_flow, is_entry_point=True).first()
+        if entry_point_step:
+             ContactFlowState.objects.create(
+                contact=contact,
+                current_flow=lead_gen_flow,
+                current_step=entry_point_step,
+                flow_context_data={},  # Always start with an empty context
+                started_at=timezone.now())
 
 
 def _evaluate_transition_condition(transition: FlowTransition, contact: Contact, message_data: dict, flow_context: dict, incoming_message_obj: Message) -> bool:

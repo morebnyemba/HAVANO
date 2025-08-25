@@ -8,7 +8,7 @@ from conversations.models import Contact
 import uuid
 
 # Import models from other apps to create relationships
-from products_and_services.models import Product, Service
+from products_and_services.models import SoftwareProduct, ProfessionalService
 
 class LeadStatus(models.TextChoices):
     """Defines the choices for the lead status in the sales pipeline."""
@@ -233,8 +233,16 @@ class Opportunity(models.Model):
     expected_close_date = models.DateField(_("Expected Close Date"), null=True, blank=True)
     
     # Links to the catalog
-    products = models.ManyToManyField(Product, blank=True, related_name='opportunities')
-    services = models.ManyToManyField(Service, blank=True, related_name='opportunities')
+    software_product = models.ForeignKey(
+        SoftwareProduct,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='opportunities',
+        help_text=_("The core software product for this opportunity.")
+    )
+    professional_services = models.ManyToManyField(ProfessionalService, blank=True, related_name='opportunities')
+    software_modules = models.ManyToManyField('products_and_services.SoftwareModule', blank=True, related_name='opportunities')
+    devices = models.ManyToManyField('products_and_services.Device', blank=True, related_name='opportunities')
 
     assigned_agent = models.ForeignKey(
         settings.AUTH_USER_MODEL,
