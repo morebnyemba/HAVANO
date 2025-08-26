@@ -82,8 +82,8 @@ services:
       - staticfiles_volume:/srv/www/static/:ro # Use the named volume for static files
       - ./whatsappcrm_backend/mediafiles:/srv/www/media/:ro # Bind mount the host's media directory for Nginx to serve
       # Mounts for Let's Encrypt:
-      - /var/www/letsencrypt:/var/www/letsencrypt:ro  # For serving ACME challenges (Nginx only needs to read)
-      - /etc/letsencrypt:/etc/nginx/ssl:ro           # For SSL certificates and related files (Nginx only needs to read)
+      - ./data/letsencrypt/www:/var/www/letsencrypt:ro
+      - ./data/letsencrypt/conf:/etc/nginx/ssl:ro
     depends_on:
       - backend
       - frontend
