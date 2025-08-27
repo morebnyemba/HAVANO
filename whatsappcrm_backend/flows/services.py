@@ -36,7 +36,6 @@ class FlowActionRegistry:
 flow_action_registry = FlowActionRegistry()
 
 from paynow_integration.services import PaynowService
-from paynow_integration.tasks import poll_paynow_transaction_status
 try:
     from media_manager.models import MediaAsset # For asset_pk lookup
     MEDIA_ASSET_ENABLED = True

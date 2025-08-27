@@ -262,3 +262,65 @@ class Opportunity(models.Model):
         verbose_name = _("Opportunity")
         verbose_name_plural = _("Opportunities")
         ordering = ['-updated_at']
+
+
+class PaymentStatus(models.TextChoices):
+    PENDING = 'pending', _('Pending')
+    SUCCESSFUL = 'successful', _('Successful')
+    FAILED = 'failed', _('Failed')
+    CANCELLED = 'cancelled', _('Cancelled')
+    AWAITING_DELIVERY = 'awaiting_delivery', _('Awaiting Delivery')
+    DELIVERED = 'delivered', _('Delivered')
+
+
+class Payment(models.Model):
+    """
+    Represents a payment transaction, typically initiated through a flow
+    and processed by a payment gateway like Paynow.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    customer = models.ForeignKey(
+        CustomerProfile,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payments',
+        help_text=_("The customer who made the payment.")
+    )
+    opportunity = models.ForeignKey(
+        'Opportunity',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payments',
+        help_text=_("The sales opportunity this payment is for.")
+    )
+    amount = models.DecimalField(_("Amount"), max_digits=12, decimal_places=2)
+    currency = models.CharField(_("Currency"), max_length=3, default='USD')
+    status = models.CharField(
+        _("Payment Status"), max_length=50, choices=PaymentStatus.choices,
+        default=PaymentStatus.PENDING, db_index=True
+    )
+    payment_method = models.CharField(_("Payment Method"), max_length=50, default='paynow')
+    provider_transaction_id = models.CharField(
+        _("Provider Transaction ID"), max_length=255, blank=True, null=True, db_index=True,
+        help_text=_("The unique ID for this transaction from the payment provider (e.g., Paynow poll URL or reference).")
+    )
+    poll_url = models.CharField(
+        _("Paynow Poll URL"), max_length=255, blank=True, null=True,
+        help_text=_("The URL to poll for transaction status updates from Paynow.")
+    )
+    provider_response = models.JSONField(
+        _("Provider Response"), default=dict, blank=True,
+        help_text=_("The last raw response received from the payment provider.")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Payment {self.id} for {self.customer} - {self.amount} {self.currency} ({self.get_status_display()})"
+
+    class Meta:
+        verbose_name = _("Payment")
+        verbose_name_plural = _("Payments")
+        ordering = ['-created_at']
