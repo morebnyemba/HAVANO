@@ -1,7 +1,7 @@
 // src/lib/api.js
 import { toast } from 'sonner';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://crmbackend.lifeinternationalministries.com';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://autochats.havano.online';
 const getAuthToken = () => localStorage.getItem('accessToken');
 
 export async function apiCall(endpoint, { method = 'GET', body = null, isPaginatedFallback = false } = {}) {

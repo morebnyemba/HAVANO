@@ -194,7 +194,7 @@ SIMPLE_JWT = {
 # This tells the browser that it's safe to accept cross-origin requests from your frontend.
 CORS_ALLOWED_ORIGINS_STRING = os.getenv(
     'CORS_ALLOWED_ORIGINS',
-    'http://localhost:5173,http://127.0.0.1:5173,https://apps1.havano.online'
+    'http://localhost:5173,http://127.0.0.1:5173,https://apps1.havano.online,https://autochats.havano.online'
 )
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STRING.split(',') if origin.strip()]
 CORS_ALLOW_CREDENTIALS = True
@@ -321,10 +321,11 @@ JAZZMIN_UI_TWEAKS = {
 # Example .env content (should be in a separate .env file at project root):
 # DJANGO_SECRET_KEY="your-actual-strong-secret-key-here"
 # DJANGO_DEBUG="False" # Set to "False" for production
+# DJANGO_ALLOWED_HOSTS="autochats.havano.online,crmbackend.lifeinternationalministries.com,localhost,127.0.0.1"
+# CSRF_TRUSTED_ORIGINS="https://autochats.havano.online,http://localhost:5173"
+# CORS_ALLOWED_ORIGINS="https://autochats.havano.online,http://localhost:5173"
 # BACKEND_DOMAIN_FOR_CSP="crmbackend.lifeinternationalministries.com"
-# DJANGO_ALLOWED_HOSTS="autochats.havano.online,apps1.havano.online,localhost,127.0.0.1"
-# CSRF_TRUSTED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
-# CORS_ALLOWED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
+# FRONTEND_DOMAIN_FOR_CSP="autochats.havano.online"
 
 # --- Content Security Policy (CSP) ---
 # This is to address browser errors blocking API calls from the frontend due to CSP.
@@ -333,11 +334,18 @@ JAZZMIN_UI_TWEAKS = {
 # The domain of your backend API that the frontend needs to connect to.
 # It's best to set this in your .env file.
 BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'crmbackend.lifeinternationalministries.com')
+FRONTEND_DOMAIN_FOR_CSP = os.getenv('FRONTEND_DOMAIN_FOR_CSP', 'apps1.havano.online')
 
 # A basic but effective CSP. You may need to add other sources (e.g., CDNs)
 # for scripts, styles, fonts, or images depending on your frontend's needs.
 CSP_DEFAULT_SRC = ("'self'",)
-CSP_CONNECT_SRC = ("'self'", f"https://{BACKEND_DOMAIN_FOR_CSP}", f"wss://{BACKEND_DOMAIN_FOR_CSP}")
+CSP_CONNECT_SRC = (
+    "'self'",
+    f"https://{BACKEND_DOMAIN_FOR_CSP}",
+    f"wss://{BACKEND_DOMAIN_FOR_CSP}",
+    f"https://{FRONTEND_DOMAIN_FOR_CSP}",
+    f"wss://{FRONTEND_DOMAIN_FOR_CSP}",
+)
 CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'") # 'unsafe-inline/eval' might be needed for dev
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'") # 'unsafe-inline' is often needed for styled-components etc.
 CSP_IMG_SRC = ("'self'", "data:", "blob:")

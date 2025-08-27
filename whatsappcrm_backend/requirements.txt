@@ -46,3 +46,4 @@ channels
 channels_redis
 openpyxl
 reportlab
+django-csp
