@@ -72,6 +72,7 @@ INSTALLED_APPS = [
     'conversations.apps.ConversationsConfig',
     'flows.apps.FlowsConfig',
     'products_and_services.apps.ProductsAndServicesConfig',
+    'customer_data.apps.CustomerDataConfig',
     
 ]
 
