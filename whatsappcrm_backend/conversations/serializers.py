@@ -6,7 +6,6 @@ from django.db import transaction
 import logging
 
 from .models import Contact, Message, Broadcast, BroadcastRecipient
-from customer_data.serializers import CustomerProfileSerializer # Corrected import
 from meta_integration.tasks import send_whatsapp_message_task
 from meta_integration.models import MetaAppConfig
 
@@ -179,16 +178,13 @@ class ContactDetailSerializer(ContactSerializer):
     Contact serializer that includes the nested CustomerProfile 
     and a list of recent messages for detailed views.
     """
-    # Use the correct serializer. The field name 'customer_profile' matches the
-    # related_name on the Contact model, so 'source' is not needed.
-    customer_profile = CustomerProfileSerializer(read_only=True)
     # The view must prefetch the related messages into an attribute named 'messages'.
     # e.g., .prefetch_related('messages')
     recent_messages = MessageListSerializer(many=True, read_only=True, source='messages')
 
     class Meta(ContactSerializer.Meta):
         # Inherit fields from ContactSerializer and add new ones
-        fields = ContactSerializer.Meta.fields + ['customer_profile', 'recent_messages']
+        fields = ContactSerializer.Meta.fields + ['recent_messages']
 
 class BroadcastCreateSerializer(serializers.Serializer):
     """

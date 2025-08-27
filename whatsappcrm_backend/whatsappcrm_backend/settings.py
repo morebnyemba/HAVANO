@@ -71,7 +71,6 @@ INSTALLED_APPS = [
     'meta_integration.apps.MetaIntegrationConfig',
     'conversations.apps.ConversationsConfig',
     'flows.apps.FlowsConfig',
-    'customer_data.apps.CustomerDataConfig',
     'products_and_services.apps.ProductsAndServicesConfig',
     
 ]
@@ -239,27 +238,6 @@ CELERY_BEAT_SCHEDULE = {}
 CONVERSATION_EXPIRY_DAYS = int(os.getenv('CONVERSATION_EXPIRY_DAYS', '60'))
 ADMIN_WHATSAPP_NUMBER = os.getenv('ADMIN_WHATSAPP_NUMBER', None) # e.g., '15551234567'
 
-# --- Church Details ---
-# Centralized details for use in templates, exports, and messages.
-CHURCH_DETAILS = {
-    'NAME': os.getenv('CHURCH_NAME', 'Life International Ministries'),
-    'ADDRESS_LINE_1': os.getenv('CHURCH_ADDRESS_LINE_1', '123 Gospel Lane'),
-    'ADDRESS_LINE_2': os.getenv('CHURCH_ADDRESS_LINE_2', 'Faith City, ZW'),
-    'CONTACT_PHONE': os.getenv('CHURCH_CONTACT_PHONE', '+263 123 456789'),
-    'CONTACT_EMAIL': os.getenv('CHURCH_CONTACT_EMAIL', 'info@havano.online'),
-    'WEBSITE': os.getenv('CHURCH_WEBSITE', 'www.havano.online'),
-    'MOTTO': os.getenv('CHURCH_MOTTO', 'Serving the Community with Faith'),
-}
-
-
-print("--- DEBUGGING ENVIRONMENT VARIABLES ---")
-celery_log_level_env = os.getenv('CELERY_LOG_LEVEL')
-print(f"Value of CELERY_LOG_LEVEL from os.getenv: '{celery_log_level_env}' (Type: {type(celery_log_level_env)})")
-
-effective_celery_level_for_config = os.getenv('CELERY_LOG_LEVEL', 'INFO')
-print(f"Effective level used for Celery logger config: '{effective_celery_level_for_config}' (Type: {type(effective_celery_level_for_config)})")
-print("------------------------------------")
-
 
 # --- Logging Configuration ---
 LOGGING = {
@@ -285,12 +263,12 @@ WHATSAPP_APP_SECRET = os.getenv('WHATSAPP_APP_SECRET', None)
 # --- Jazzmin Admin Theme Settings ---
 JAZZMIN_SETTINGS = {
     "site_title": "AutoWhats",
-    "site_header": CHURCH_DETAILS['NAME'],
+    "site_header": os.getenv('SITE_HEADER', 'AutoWhats CRM'),
     "site_brand": "A-W",
     "site_logo_classes": "img-circle",
     # Path to logo, relative to static files.
     # It should not include /static/ in the path.
-    "site_logo": "./admin/img/logo.png",
+    "site_logo": "admin/img/logo.png",
     "welcome_sign": "Welcome to the AutoWhats Admin",
     "copyright": "Slyker Tech Web Services and Patners.",
     "search_model": ["auth.User", "meta_integration.MetaAppConfig", "conversations.Contact", "flows.Flow"],
@@ -312,18 +290,10 @@ JAZZMIN_SETTINGS = {
         "flows": "fas fa-project-diagram",
         "flows.Flow": "fas fa-bezier-curve", "flows.FlowStep": "fas fa-shoe-prints",
         "flows.FlowTransition": "fas fa-route", "flows.ContactFlowState": "fas fa-map-signs",
-        "customer_data": "fas fa-church",
-        "customer_data.CustomerProfile": "fas fa-user-check",
+        "customer_data": "fas fa-users-cog",
+        "customer_data.CustomerProfile": "fas fa-user-tie",
         "customer_data.Interaction": "fas fa-handshake",
-        "customer_data.Payment": "fas fa-money-bill-wave",
-        "customer_data.PrayerRequest": "fas fa-praying-hands",
         "customer_data.Opportunity": "fas fa-dollar-sign",
-        "products_and_services": "fas fa-cogs",
-        "products_and_services.OfferingCategory": "fas fa-tags",
-        "products_and_services.SoftwareProduct": "fas fa-desktop",
-        "products_and_services.SoftwareModule": "fas fa-puzzle-piece",
-        "products_and_services.ProfessionalService": "fas fa-user-tie",
-        "products_and_services.Device": "fas fa-print",
     },
     "default_icon_parents": "fas fa-chevron-circle-right",
     "default_icon_children": "fas fa-circle",
@@ -351,23 +321,3 @@ JAZZMIN_UI_TWEAKS = {
 # DJANGO_ALLOWED_HOSTS="autochats.havano.online,apps1.havano.online,localhost,127.0.0.1"
 # CSRF_TRUSTED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
 # CORS_ALLOWED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
-# CELERY_BROKER_URL="redis://localhost:6379/0"
-# CELERY_RESULT_BACKEND="redis://localhost:6379/1"
-# DB_ENGINE="django.db.backends.postgresql" # Or your preferred DB
-# DB_NAME="your_db_name"
-CONVERSATION_EXPIRY_DAYS="60"
-ADMIN_WHATSAPP_NUMBER="+263787211325"
-JWT_ACCESS_TOKEN_LIFETIME_MINUTES="60"
-CHURCH_GIVING_DETAILS = {
-    'BANK_NAME': os.getenv('CHURCH_BANK_NAME', 'Steward Bank'),
-    'ACCOUNT_NUMBER': os.getenv('CHURCH_ACCOUNT_NUMBER', '123456789'),
-    'MERCHANT_CODE': os.getenv('CHURCH_MERCHANT_CODE', '*123*456*1#'),
-    'DEFAULT_CURRENCY': os.getenv('DEFAULT_GIVING_CURRENCY', 'USD'),
-}
-
-# You can then add these to your .env file:
-# CHURCH_BANK_NAME="Steward Bank"
-# CHURCH_ACCOUNT_NUMBER="123456789"
-# CHURCH_MERCHANT_CODE="*123*456*1#"
-# DEFAULT_GIVING_CURRENCY="USD"
-JWT_REFRESH_TOKEN_LIFETIME_DAYS="7"

@@ -20,12 +20,9 @@ urlpatterns = [
     #   - DRF APIs for MetaAppConfig and WebhookEventLog (e.g., /crm-api/meta/api/configs/)
     path('crm-api/meta/', include('meta_integration.urls', namespace='meta_integration_api')), 
     
-    # API endpoints for 'conversations' application
-    # This includes DRF APIs for Contacts and Messages (e.g., /crm-api/conversations/contacts/)
     path('crm-api/conversations/', include('conversations.urls', namespace='conversations_api')),
 path('crm-api/customer-data/', include('customer_data.urls', namespace='customer_data_api')),
 path('crm-api/stats/', include('stats.urls', namespace='stats_api')),
-    path('crm-api/church-services/', include('church_services.urls', namespace='church_services_api')),
     # API endpoints for 'flows' application
     # This includes DRF APIs for Flows, FlowSteps, etc. (e.g., /crm-api/flows/flows/)
     path('crm-api/flows/', include('flows.urls', namespace='flows_api')),

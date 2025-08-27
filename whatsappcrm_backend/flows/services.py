@@ -19,10 +19,7 @@ import json
 
 from conversations.models import Contact, Message
 from .models import Flow, FlowStep, FlowTransition, ContactFlowState
-# Corrected imports for customer_data models and utils
 from customer_data.models import CustomerProfile
-# Import custom action functions
-from customer_data.utils import record_payment, record_prayer_request, create_opportunity
 
 # Import Pydantic schemas from the new file
 from .schemas import (
@@ -136,7 +133,7 @@ def _get_value_from_context_or_contact(variable_path: str, flow_context: dict, c
     elif source_object_name == 'contact':
         current_value = contact
         path_to_traverse = parts[1:]
-    elif source_object_name == 'customer_profile': # Corrected from member_profile
+    elif source_object_name == 'customer_profile':
         try:
             current_value = contact.customer_profile # Access related object via Django ORM
             path_to_traverse = parts[1:]
@@ -192,7 +189,7 @@ def _resolve_value(template_value: Any, flow_context: dict, contact: Contact) ->
             template = jinja_env.from_string(template_value)
             # The context for Jinja includes the contact, their profile, and the flow context flattened.
             render_context = {
-                **flow_context,
+                **flow_context, # type: ignore
                 'contact': contact,
                 'customer_profile': getattr(contact, 'customer_profile', None)
             }
@@ -214,29 +211,29 @@ def _resolve_template_components(components_config: list, flow_context: dict, co
     if not components_config or not isinstance(components_config, list): return []
     try:
         resolved_components_list = json.loads(json.dumps(components_config)) # Deep copy
-        for component in resolved_components_list:
-            if isinstance(component.get('parameters'), list):
-                for param in component['parameters']:
+        for component in resolved_components_list: # type: ignore
+            if isinstance(component.get('parameters'), list): # type: ignore
+                for param in component['parameters']: # type: ignore
                     # Resolve text for any parameter type that might contain it
-                    if 'text' in param and isinstance(param['text'], str):
-                        param['text'] = _resolve_value(param['text'], flow_context, contact)
+                    if 'text' in param and isinstance(param['text'], str): # type: ignore
+                        param['text'] = _resolve_value(param['text'], flow_context, contact) # type: ignore
                     
                     # Specific handling for media link in header/body components using image/video/document type parameters
-                    param_type = param.get('type')
-                    if param_type in ['image', 'video', 'document'] and isinstance(param.get(param_type), dict):
-                        media_obj = param[param_type]
-                        if 'link' in media_obj and isinstance(media_obj['link'], str):
-                             media_obj['link'] = _resolve_value(media_obj['link'], flow_context, contact)
+                    param_type = param.get('type') # type: ignore
+                    if param_type in ['image', 'video', 'document'] and isinstance(param.get(param_type), dict): # type: ignore
+                        media_obj = param[param_type] # type: ignore
+                        if 'link' in media_obj and isinstance(media_obj['link'], str): # type: ignore
+                             media_obj['link'] = _resolve_value(media_obj['link'], flow_context, contact) # type: ignore
                     
                     # Handle payload for button parameters
-                    if component.get('type') == 'button' and param.get('type') == 'payload' and 'payload' in param and isinstance(param['payload'], str):
-                         param['payload'] = _resolve_value(param['payload'], flow_context, contact)
+                    if component.get('type') == 'button' and param.get('type') == 'payload' and 'payload' in param and isinstance(param['payload'], str): # type: ignore
+                         param['payload'] = _resolve_value(param['payload'], flow_context, contact) # type: ignore
 
                     # Handle currency and date_time fallback_values
-                    if param_type == 'currency' and isinstance(param.get('currency'), dict) and 'fallback_value' in param['currency']:
-                        param['currency']['fallback_value'] = _resolve_value(param['currency']['fallback_value'], flow_context, contact)
-                    if param_type == 'date_time' and isinstance(param.get('date_time'), dict) and 'fallback_value' in param['date_time']:
-                        param['date_time']['fallback_value'] = _resolve_value(param['date_time']['fallback_value'], flow_context, contact)
+                    if param_type == 'currency' and isinstance(param.get('currency'), dict) and 'fallback_value' in param['currency']: # type: ignore
+                        param['currency']['fallback_value'] = _resolve_value(param['currency']['fallback_value'], flow_context, contact) # type: ignore
+                    if param_type == 'date_time' and isinstance(param.get('date_time'), dict) and 'fallback_value' in param['date_time']: # type: ignore
+                        param['date_time']['fallback_value'] = _resolve_value(param['date_time']['fallback_value'], flow_context, contact) # type: ignore
 
         return resolved_components_list
     except Exception as e:
@@ -407,74 +404,9 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                 elif action_type == 'update_contact_field' and action_item_conf.field_path is not None:
                     resolved_value = _resolve_value(action_item_conf.value_template, current_step_context, contact)
                     _update_contact_data(contact, action_item_conf.field_path, resolved_value)
-                elif action_type == 'update_customer_profile' and action_item_conf.fields_to_update is not None: # Corrected action name
+                elif action_type == 'update_customer_profile' and action_item_conf.fields_to_update is not None:
                     resolved_fields_to_update = _resolve_value(action_item_conf.fields_to_update, current_step_context, contact) # type: ignore
-                    _update_customer_profile_data(contact, resolved_fields_to_update, current_step_context) # Corrected function name
-                elif action_type == 'record_payment':
-                    amount_str = _resolve_value(action_item_conf.amount_template, current_step_context, contact)
-                    payment_type = _resolve_value(action_item_conf.payment_type_template, current_step_context, contact)
-                    payment_method = _resolve_value(action_item_conf.payment_method_template, current_step_context, contact)
-                    currency = _resolve_value(action_item_conf.currency_template, current_step_context, contact)
-                    notes = _resolve_value(action_item_conf.notes_template, current_step_context, contact)
-                    transaction_ref = _resolve_value(action_item_conf.transaction_ref_template, current_step_context, contact)
-                    status = _resolve_value(action_item_conf.status_template, current_step_context, contact)
-                    proof_of_payment_wamid = _resolve_value(action_item_conf.proof_of_payment_wamid_template, current_step_context, contact)
-
-                    payment_obj, confirmation_action = record_payment(
-                        contact=contact,
-                        amount_str=str(amount_str) if amount_str is not None else "0",
-                        payment_type=str(payment_type) if payment_type else "other",
-                        payment_method=str(payment_method) if payment_method else "whatsapp_flow",
-                        status=str(status) if status else None,
-                        currency=str(currency) if currency else "USD",
-                        notes=str(notes) if notes else None,
-                        transaction_ref=str(transaction_ref) if transaction_ref else None,
-                        proof_of_payment_wamid=str(proof_of_payment_wamid) if proof_of_payment_wamid else None
-                    )
-
-                    if payment_obj:
-                        current_step_context['last_payment_id'] = str(payment_obj.id)
-                        logger.info(f"Contact {contact.id}: Action in step {step.id} recorded payment {payment_obj.id}.")
-                        if confirmation_action:
-                            actions_to_perform.append(confirmation_action)
-                    else:
-                        logger.error(f"Contact {contact.id}: Action in step {step.id} failed to record payment for amount '{amount_str}'.")
-                
-                elif action_type == 'initiate_paynow_giving_payment':
-                    amount_str = _resolve_value(action_item_conf.amount_template, current_step_context, contact) # type: ignore
-                    payment_type = _resolve_value(action_item_conf.payment_type_template, current_step_context, contact)
-                    payment_method = _resolve_value(action_item_conf.payment_method_template, current_step_context, contact)
-                    phone_number = _resolve_value(action_item_conf.phone_number_template, current_step_context, contact)
-                    email = _resolve_value(action_item_conf.email_template, current_step_context, contact)
-                    currency = _resolve_value(action_item_conf.currency_template, current_step_context, contact)
-                    notes = _resolve_value(action_item_conf.notes_template, current_step_context, contact)
-
-                    context_updates = _initiate_paynow_giving_payment(contact, amount_str, payment_type, payment_method, phone_number, email, currency, notes)
-                    current_step_context.update(context_updates)
-                    logger.info(f"Contact {contact.id}: Action in step {step.id} initiated Paynow payment. Context updated: {context_updates}")
-
-                elif action_type == 'record_prayer_request':
-                    request_text = _resolve_value(action_item_conf.request_text_template, current_step_context, contact)
-                    category = _resolve_value(action_item_conf.category_template, current_step_context, contact)
-                    is_anonymous_val = _resolve_value(action_item_conf.is_anonymous_template, current_step_context, contact)
-                    submitted_as_member_val = _resolve_value(action_item_conf.submitted_as_member_template, current_step_context, contact)
-
-                    # Coerce resolved value to boolean
-                    is_anonymous = str(is_anonymous_val).lower() in ['true', '1', 'yes'] if is_anonymous_val is not None else False
-                    submitted_as_member = str(submitted_as_member_val).lower() in ['true', '1', 'yes'] if submitted_as_member_val is not None else False
-
-                    prayer_request_obj = record_prayer_request(
-                        contact=contact,
-                        request_text=str(request_text) if request_text else "",
-                        category=str(category) if category else "other",
-                        is_anonymous=is_anonymous,
-                        submitted_as_member=submitted_as_member
-                    )
-                    if prayer_request_obj:
-                        current_step_context['last_prayer_request_id'] = str(prayer_request_obj.id)
-                        logger.info(f"Contact {contact.id}: Action in step {step.id} recorded prayer request {prayer_request_obj.id}.")
-                    else:
-                        logger.error(f"Contact {contact.id}: Action in step {step.id} failed to record prayer request for text '{str(request_text)[:50]}...'.")
+                    _update_customer_profile_data(contact, resolved_fields_to_update, current_step_context)
                 elif action_type == 'send_admin_notification':
                     admin_number = settings.ADMIN_WHATSAPP_NUMBER
                     if not admin_number:
@@ -974,31 +906,26 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
         logger.warning("_update_customer_profile_data called with invalid fields_to_update_config.")
         return
 
-    # get_or_create is atomic and safe for concurrent requests.
     profile, created = CustomerProfile.objects.get_or_create(contact=contact)
     if created: 
         logger.info(f"Created CustomerProfile for contact {contact.whatsapp_id}")
 
     changed_fields = []
     for field_path, value_template in fields_to_update_config.items():
-        resolved_value = _resolve_value(value_template, flow_context, contact) # Resolve value using context
+        resolved_value = _resolve_value(value_template, flow_context, contact)
         
-        # Handle 'skip' for optional fields by setting them to None
         if isinstance(resolved_value, str) and resolved_value.lower() == 'skip':
             resolved_value = None
         
         parts = field_path.split('.')
-        if len(parts) == 1: # Direct attribute on MemberProfile model
+        if len(parts) == 1: # Direct attribute on CustomerProfile model
             field_name = parts[0]
-            # Prevent updating protected/internal fields
             if hasattr(profile, field_name) and field_name.lower() not in ['contact', 'contact_id', 'created_at', 'updated_at', 'last_interaction_date']:
                 try:
                     field_object = profile._meta.get_field(field_name)
-                    # Robustness: Coerce empty strings to None for nullable fields to prevent validation errors.
                     if isinstance(field_object, models.DateField) and resolved_value == '':
                         resolved_value = None
 
-                    # Coerce to Decimal for DecimalField
                     if isinstance(field_object, models.DecimalField) and resolved_value is not None:
                         try:
                             resolved_value = Decimal(resolved_value)
@@ -1011,7 +938,6 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
                         changed_fields.append(field_name)
                 except (DjangoValidationError, TypeError, ValueError) as e:
                     logger.error(f"Validation/Type error updating CustomerProfile field '{field_name}' for contact {contact.id} with value '{resolved_value}'. Error: {e}", exc_info=False)
-                    # Continue to next field, do not add to changed_fields
                     continue
             else:
                 logger.warning(f"CustomerProfile field '{field_name}' not found or is protected.")
@@ -1019,18 +945,17 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
             json_field_name = parts[0]
             json_data = getattr(profile, json_field_name)
             
-            # Initialize if None or not the correct type
             if json_field_name == 'tags' and not isinstance(json_data, list):
                 json_data = []
             elif json_field_name == 'custom_attributes' and not isinstance(json_data, dict):
                 json_data = {}
             
             current_level = json_data
-            for key in parts[1:-1]: # Navigate to the second to last key
+            for key in parts[1:-1]:
                 current_level = current_level.setdefault(key, {})
                 if not isinstance(current_level, dict):
                     logger.warning(f"Path error in CustomerProfile.{json_field_name} at '{key}'. Expected dict, found {type(current_level)}.")
-                    current_level = None # Stop further processing for this path
+                    current_level = None
                     break
             
             if current_level is not None:
@@ -1038,12 +963,10 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
                 if isinstance(current_level, dict):
                     current_level[final_key] = resolved_value
                 elif isinstance(current_level, list):
-                    # For tags, we might want to append, but for now, direct assignment is simpler.
-                    # This part can be enhanced if needed.
                     logger.warning(f"Direct key assignment ('{final_key}') on a list (tags) is not supported. Replacing list.")
                     json_data = resolved_value if isinstance(resolved_value, list) else [resolved_value]
 
-                setattr(profile, json_field_name, json_data) # Assign the modified dict back
+                setattr(profile, json_field_name, json_data)
                 if json_field_name not in changed_fields:
                     changed_fields.append(json_field_name)
         else:
@@ -1053,33 +976,13 @@ def _update_customer_profile_data(contact: Contact, fields_to_update_config: Dic
         profile.save(update_fields=changed_fields)
         logger.info(f"CustomerProfile for {contact.whatsapp_id} updated fields: {changed_fields}")
 
-# --- Register Custom Actions ---
-# This allows your flow definitions to use custom actions like "create_opportunity".
-# This should be done when the app is ready, typically in apps.py.
-flow_action_registry.register('create_opportunity', create_opportunity)
 
-
-# --- Main Service Function (process_message_for_flow) ---
-# This is the function that should be imported by meta_integration/views.py
 @transaction.atomic
 def process_message_for_flow(contact: Contact, message_data: dict, incoming_message_obj: Message) -> List[Dict[str, Any]]:
     """
     Main entry point to process an incoming message for a contact against flows.
     Determines if the contact is in an active flow or if a new flow should be triggered.
     """
-    # --- Performance Optimization ---
-    # Eagerly load the related member_profile to prevent N+1 queries during template/condition resolution.
-    # This is a safe way to ensure the profile is available without modifying the calling view.
-    try: # Corrected from member_profile to customer_profile
-        contact = Contact.objects.select_related('customer_profile').get(pk=contact.pk)
-    except Contact.DoesNotExist:
-        # This should theoretically not happen if the contact was just created/retrieved, but it's a safe guard.
-        logger.error(f"Contact with pk={contact.pk} not found at start of flow processing. Aborting.")
-        return []
-
-    # If a contact is flagged for human intervention, pause all flow processing for them.
-    # An admin or agent must manually clear this flag in the admin panel or CRM interface
-    # to re-enable automated flows for this contact.
     if contact.needs_human_intervention:
         logger.info(
             f"Flow processing is paused for contact {contact.id} ({contact.whatsapp_id}) "
