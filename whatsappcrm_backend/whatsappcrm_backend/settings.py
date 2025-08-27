@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'rest_framework_simplejwt.token_blacklist', 
+    'csp', # For Content Security Policy
     'corsheaders',
     'django_celery_results',
     'django_celery_beat',
@@ -80,6 +81,7 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware', 
     'corsheaders.middleware.CorsMiddleware', # Should be placed high
+    'csp.middleware.CSPMiddleware', # Should be placed after security/cors middleware
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware', 
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -319,6 +321,26 @@ JAZZMIN_UI_TWEAKS = {
 # Example .env content (should be in a separate .env file at project root):
 # DJANGO_SECRET_KEY="your-actual-strong-secret-key-here"
 # DJANGO_DEBUG="False" # Set to "False" for production
+# BACKEND_DOMAIN_FOR_CSP="crmbackend.lifeinternationalministries.com"
 # DJANGO_ALLOWED_HOSTS="autochats.havano.online,apps1.havano.online,localhost,127.0.0.1"
 # CSRF_TRUSTED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
 # CORS_ALLOWED_ORIGINS="https://apps1.havano.online,http://localhost:5173"
+
+# --- Content Security Policy (CSP) ---
+# This is to address browser errors blocking API calls from the frontend due to CSP.
+# This configuration uses the `django-csp` package, which you will need to install.
+
+# The domain of your backend API that the frontend needs to connect to.
+# It's best to set this in your .env file.
+BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'crmbackend.lifeinternationalministries.com')
+
+# A basic but effective CSP. You may need to add other sources (e.g., CDNs)
+# for scripts, styles, fonts, or images depending on your frontend's needs.
+CSP_DEFAULT_SRC = ("'self'",)
+CSP_CONNECT_SRC = ("'self'", f"https://{BACKEND_DOMAIN_FOR_CSP}", f"wss://{BACKEND_DOMAIN_FOR_CSP}")
+CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'") # 'unsafe-inline/eval' might be needed for dev
+CSP_STYLE_SRC = ("'self'", "'unsafe-inline'") # 'unsafe-inline' is often needed for styled-components etc.
+CSP_IMG_SRC = ("'self'", "data:", "blob:")
+CSP_FONT_SRC = ("'self'",)
+CSP_OBJECT_SRC = ("'none'",)
+CSP_FRAME_ANCESTORS = ("'none'",)
