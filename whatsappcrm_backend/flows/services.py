@@ -277,7 +277,15 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
 
     if step.step_type == 'send_message':
         try:
-            send_message_config = StepConfigSendMessage.model_validate(raw_step_config)
+            # The config for a send_message step is expected to be nested under 'message_config'
+            # for consistency with how 'question' steps are structured. This handles that.
+            message_config_data = raw_step_config.get('message_config')
+            if message_config_data is None:
+                 logger.warning(f"Contact {contact.id}: 'send_message' step '{step.name}' (ID: {step.id}) has a missing or malformed 'message_config' key in its config. Attempting to validate the raw config. Raw: {raw_step_config}")
+                 # To handle legacy flat configs if any exist, or malformed ones.
+                 message_config_data = raw_step_config
+
+            send_message_config = StepConfigSendMessage.model_validate(message_config_data)
             actual_message_type = send_message_config.message_type
             final_api_data_structure = {}
 
