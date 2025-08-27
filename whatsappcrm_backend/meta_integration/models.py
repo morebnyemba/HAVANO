@@ -100,11 +100,12 @@ class WebhookEventLog(models.Model):
     ]
 
     # --- THIS IS THE CORRECTED FIELD ---
-    # The unique=True constraint is the critical fix.
+    # NOTE: unique=True was removed. It prevents logging multiple status updates
+    # for the same message (e.g., 'sent', 'delivered', 'read'), which all share
+    # the same WAMID. A management command `cleanup_logs` exists to handle duplicates.
     event_identifier = models.CharField(
-        max_length=255, 
-        unique=True, 
-        help_text="A unique identifier for the event (e.g., the top-level ID from the webhook entry)."
+        max_length=255, db_index=True, blank=True, null=True,
+        help_text="A non-unique identifier for the event (e.g., wamid for messages)."
     )
 
     app_config = models.ForeignKey(

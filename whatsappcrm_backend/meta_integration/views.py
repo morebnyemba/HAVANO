@@ -258,10 +258,18 @@ class MetaWebhookAPIView(View):
                             
                             elif "statuses" in value:
                                 for status_data in value["statuses"]:
-                                    wamid = status_data.get("id")
+                                    wamid = status_data.get("id") # This is the WAMID of the message being updated
+                                    status_val = status_data.get("status")
+                                    
+                                    # Create a more unique identifier for status updates to avoid overwriting.
+                                    # A single message (wamid) can have multiple statuses (sent, delivered, read).
+                                    status_identifier = f"{wamid}_{status_val}"
+
                                     log_entry, _ = WebhookEventLog.objects.update_or_create(
-                                        event_identifier=wamid, app_config=active_config, event_type='message_status',
-                                        defaults={**log_defaults_for_change, 'payload': status_data, 'processing_status': 'pending'}
+                                        event_identifier=status_identifier, app_config=active_config,
+                                        defaults={'event_type': 'message_status', 
+                                                  **log_defaults_for_change, 'payload': status_data, 
+                                                  'processing_status': 'pending'}
                                     )
                                     self.handle_status_update(status_data, metadata, active_config, log_entry)
                             # Add elif for "errors" here similar to above if needed
@@ -477,7 +485,6 @@ class MetaWebhookAPIView(View):
     def handle_status_update(self, status_data, metadata, app_config, log_entry: WebhookEventLog):
         wamid = status_data.get("id"); status_value = status_data.get("status"); ts_str = status_data.get("timestamp")
         status_ts = timezone.make_aware(datetime.fromtimestamp(int(ts_str))) if ts_str and ts_str.isdigit() else timezone.now()
-        if not log_entry.event_identifier: log_entry.event_identifier = wamid
         logger.info(f"Status Update: WAMID={wamid}, Status='{status_value}'")
         notes = [f"Status for WAMID {wamid} is {status_value}."]
         try: # noqa
