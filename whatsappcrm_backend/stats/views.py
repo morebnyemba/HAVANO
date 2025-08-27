@@ -14,6 +14,7 @@ from django.utils.dateparse import parse_date
 from conversations.models import Contact, Message
 from flows.models import Flow, ContactFlowState
 from meta_integration.models import MetaAppConfig
+from customer_data.models import Payment
 
 import logging
 logger = logging.getLogger(__name__)
@@ -168,3 +169,108 @@ class DashboardSummaryStatsAPIView(APIView):
         }
 
         return Response(data, status=status.HTTP_200_OK)
+
+
+# --- Robust, Filterable Analytics Endpoints ---
+
+class BaseAnalyticsView(APIView):
+    """
+    Base view for analytics endpoints to handle common date filtering.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_date_range(self, request):
+        """
+        Parses 'start_date' and 'end_date' from query parameters.
+        Defaults to the last 30 days if not provided.
+        Returns a timezone-aware start and end datetime.
+        """
+        now = timezone.now()
+        end_date_str = request.query_params.get('end_date')
+        start_date_str = request.query_params.get('start_date')
+
+        if end_date_str and (end_date := parse_date(end_date_str)):
+            # Set to end of the day
+            end_datetime = timezone.make_aware(datetime.combine(end_date, datetime.max.time()))
+        else:
+            end_datetime = now
+
+        if start_date_str and (start_date := parse_date(start_date_str)):
+            # Set to start of the day
+            start_datetime = timezone.make_aware(datetime.combine(start_date, datetime.min.time()))
+        else:
+            # Default to 30 days before end_datetime
+            start_datetime = end_datetime - timedelta(days=30)
+            
+        return start_datetime, end_datetime
+
+class FinancialStatsAPIView(BaseAnalyticsView):
+    """
+    Provides detailed financial statistics with filtering and grouping.
+    Query Parameters:
+    - `start_date` (YYYY-MM-DD): Start of the date range. Defaults to 30 days ago.
+    - `end_date` (YYYY-MM-DD): End of the date range. Defaults to now.
+    - `group_by` (day, week, month, payment_method): How to aggregate the data. Defaults to 'day'.
+    """
+    def get(self, request, format=None):
+        start_datetime, end_datetime = self.get_date_range(request)
+        group_by = request.query_params.get('group_by', 'day')
+
+        base_queryset = Payment.objects.filter(status='successful', created_at__range=(start_datetime, end_datetime))
+
+        total_giving = base_queryset.aggregate(total=Sum('amount'))['total'] or 0
+        total_transactions = base_queryset.count()
+        average_transaction = total_giving / total_transactions if total_transactions > 0 else 0
+
+        if group_by in ['day', 'week', 'month']:
+            trunc_func = {'day': TruncDay, 'week': TruncWeek, 'month': TruncMonth}[group_by]
+            trends = base_queryset.annotate(period=trunc_func('created_at')).values('period').annotate(total_amount=Sum('amount'), count=Count('id')).order_by('period')
+            date_format = '%Y-%m-%d' if group_by != 'month' else '%Y-%m'
+            trends_data = [{'period': item['period'].strftime(date_format), 'total_amount': item['total_amount'], 'transactions': item['count']} for item in trends]
+        else: # group by payment_method
+            trends = base_queryset.values('payment_method').annotate(total_amount=Sum('amount'), count=Count('id')).order_by('-total_amount')
+            trends_data = [{'payment_method': item['payment_method'], 'total_amount': item['total_amount'], 'transactions': item['count']} for item in trends]
+
+        return Response({
+            'summary': {
+                'total_giving': total_giving, 'total_transactions': total_transactions,
+                'average_transaction_value': average_transaction,
+                'date_range': {'start': start_datetime.isoformat(), 'end': end_datetime.isoformat()}
+            },
+            'group_by': group_by, 'trends': trends_data
+        })
+
+class EngagementStatsAPIView(BaseAnalyticsView):
+    """
+    Provides detailed user engagement statistics.
+    """
+    def get(self, request, format=None):
+        start_datetime, end_datetime = self.get_date_range(request)
+        
+        active_contacts_count = Message.objects.filter(timestamp__range=(start_datetime, end_datetime)).values('contact_id').distinct().count()
+        flows_started_count = ContactFlowState.objects.filter(started_at__range=(start_datetime, end_datetime)).count()
+        handovers_requested_count = Contact.objects.filter(needs_human_intervention=True, intervention_requested_at__range=(start_datetime, end_datetime)).count()
+
+        return Response({
+            'active_contacts_in_period': active_contacts_count, 'flows_started_in_period': flows_started_count,
+            'handovers_requested_in_period': handovers_requested_count,
+            'date_range': {'start': start_datetime.isoformat(), 'end': end_datetime.isoformat()}
+        })
+
+class MessageVolumeAPIView(BaseAnalyticsView):
+    """
+    Provides message volume statistics.
+    """
+    def get(self, request, format=None):
+        start_datetime, end_datetime = self.get_date_range(request)
+        group_by = request.query_params.get('group_by', 'day')
+
+        trunc_func, date_format = (TruncHour, '%Y-%m-%dT%H:00:00') if group_by == 'hour' else (TruncDay, '%Y-%m-%d')
+
+        message_trends = Message.objects.filter(timestamp__range=(start_datetime, end_datetime))\
+            .annotate(period=trunc_func('timestamp')).values('period')\
+            .annotate(incoming=Count('id', filter=Q(direction='in')), outgoing=Count('id', filter=Q(direction='out'))).order_by('period')
+        
+        trends_data = [{'period': item['period'].strftime(date_format), 'incoming_messages': item['incoming'], 'outgoing_messages': item['outgoing'], 'total_messages': item['incoming'] + item['outgoing']} for item in message_trends]
+
+        return Response({'date_range': {'start': start_datetime.isoformat(), 'end': end_datetime.isoformat()}, 'group_by': group_by, 'volume_per_period': trends_data})
