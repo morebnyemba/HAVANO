@@ -17,9 +17,9 @@ LEAD_GENERATION_FLOW = {
             "type": "send_message",
             "config": {
                 "message_type": "text",
-                "text": {"body": "{{ trigger_message.text_content }}\n\nWelcome! To best assist you, I need a little more information."}
+                "text": {"body": "Welcome! To best assist you, I need a little more information."}
             },
-            "transitions": [{"to_step": "refine_initial_greeting", "condition_config": {"type": "always_true"}}]
+            "transitions": [{"to_step": "ask_business_type", "condition_config": {"type": "always_true"}}]
         },
         {
             "name": "ask_business_type",
@@ -70,11 +70,12 @@ LEAD_GENERATION_FLOW = {
             "name": "ask_location",
             "type": "question",
             "config": {
-                "message_type": "text",
-                "text": {"body": "Where are you located?"}
-            },
-            "reply_config": {"save_to_variable": "customer_location", "expected_type": "text"},
-            "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please enter your location."}
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Where are you located?"}
+                },
+                "reply_config": {"save_to_variable": "customer_location", "expected_type": "text"},
+                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please enter your location."}
             },
             "transitions": [{"to_step": "query_product_options", "condition_config": {"type": "always_true"}}]
         },
@@ -110,35 +111,27 @@ LEAD_GENERATION_FLOW = {
         },
         {
             "name": "present_and_record_product_choice",
-            "type": "send_message",
+            "type": "question",
             "config": {
-                "message_type": "interactive",
-                "interactive": {
-                    "type": "list",
-                    "header": {"type": "text", "text": "Product Options"},
-                    "body": {"text": "Here are some options. Which one did you like most?"},
-                    "action": {
-                        "button": "View Products",
-                        "sections": [{
-                            "title": "Available Products",
-                            "rows": [
-                                {"id": "{{ product.sku }}", "title": "{{ product.name }}", "description": "${{ product.price }}"}
-                                for product in "{{ product_options }}"
-                            ]
-                        }]
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "list",
+                        "header": {"type": "text", "text": "Product Options"},
+                        "body": {"text": "Here are some options. Which one did you like most?"},
+                        "action": {
+                            "button": "View Products",
+                            "sections": [{
+                                "title": "Available Products",
+                                "rows": "{{ product_options | to_interactive_rows }}"
+                            }]
+                        }
                     }
-                }
-            },
+                },
                 "reply_config": {"save_to_variable": "chosen_product_sku", "expected_type": "interactive_id"},
                 "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a product from the provided options by tapping the button and choosing from the list."}
             },
             "transitions": [{"to_step": "ask_when_to_follow_up", "condition_config": {"type": "always_true"}}]
-        },
-        {
-            "name": "refine_initial_greeting",
-            "type": "send_message",
-            "config": {"message_type": "text", "text": {"body": "Welcome! To best assist you, I need a little more information."}},
-            "transitions": [{"to_step": "ask_business_type", "condition_config": {"type": "always_true"}}]
         },
         {
             "name": "ask_when_to_follow_up",
@@ -162,20 +155,6 @@ LEAD_GENERATION_FLOW = {
                             "stage": "prospecting",
                             "software_product_sku": "{{ chosen_product_sku }}",
                             "description": "Business Type: {{ business_type }}.\nReason: {{ reason_for_new_system }}.\nLocation: {{ customer_location }}.\nFollow-up: {{ follow_up_time }}",
-                            "confirmation_text": "Thank you! We have collected your information. Our team will contact you soon."
-                        }
-                    }
-                ]
-            },
-            "transitions": [{"to_step": "end_flow", "condition_config": {"type": "always_true"}}]
-        },
-        {
-            "name": "end_flow",
-            "type": "end_flow",
-            "config": {"message_config": {"message_type": "text", "text": {"body": "Thank you for your interest!"}}},
-            "transitions": []
-        }
-    ]                       "description": "Business Type: {{ business_type }}.\nReason: {{ reason_for_new_system }}.\nLocation: {{ customer_location }}.\nFollow-up: {{ follow_up_time }}",
                             "confirmation_text": "Thank you! We have collected your information. Our team will contact you soon."
                         }
                     }
