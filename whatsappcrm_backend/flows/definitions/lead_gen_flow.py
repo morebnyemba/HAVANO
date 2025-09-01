@@ -36,12 +36,11 @@ LEAD_GENERATION_FLOW = {
             "type": "action",
             "config": {
                 "actions_to_run": [
-                    {
-                        "action_type": "update_customer_profile", 
-                        "fields_to_update": {
-                            "name": "{{ user_full_name }}"
-                        }
-                    }
+                    {"action_type": "update_contact_field", "field_path": "name", "value_template": "{{ user_full_name }}"},
+                    {"action_type": "update_customer_profile", "fields_to_update": {
+                        "first_name": "{{ user_full_name.split(' ')[0] }}",
+                        "last_name": "{{ ' '.join(user_full_name.split(' ')[1:]) if ' ' in user_full_name else '' }}"
+                    }}
                 ]
             },
             "transitions": [
@@ -54,7 +53,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Thanks, {{ contact.customer_profile.name.split(' ')[0] }}! What is the name of your company?"}
+                    "text": {"body": "Thanks, {{ contact.customer_profile.first_name }}! What is the name of your company?"}
                 },
                 "reply_config": {
                     "expected_type": "text",

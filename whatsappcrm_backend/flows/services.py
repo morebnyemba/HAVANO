@@ -668,12 +668,8 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
                     current_flow=lead_gen_flow,
                     current_step=entry_point_step,
                     flow_context_data={},  # Always start with an empty context
-                    started_at=timezone.now()
-                )
-                logger.info(f"Default flow '{lead_gen_flow.name}' triggered for new contact {contact.whatsapp_id}.")
+                    started_at=timezone.now())
                 return True
-            else:
-                logger.error(f"Default flow '{lead_gen_flow.name}' is active but has no entry point step defined. Cannot trigger for new contact {contact.whatsapp_id}.")
 
     logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
     return False # No flow triggered
