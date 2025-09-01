@@ -1,7 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 import uuid
-
+# Create your models here.
 class OfferingCategory(models.Model):
     """
     A category for organizing software products and professional services.
