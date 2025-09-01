@@ -624,7 +624,7 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
                     if (flow_candidate.trigger_keywords and # Checks if there are trigger_keywords
                             isinstance(keyword, str) and keyword.strip() and 
                             keyword.strip().lower() in message_text_body and # Then normal process continues if there are trigger_keywords
-                            (not contact.flow_state)): # Flow has not started
+                            (not hasattr(contact, 'flow_state'))): # Flow has not started
                         triggered_flow = flow_candidate
                         logger.info(f"Keyword '{keyword}' triggered flow '{flow_candidate.name}' for contact {contact.whatsapp_id}.")
                         break
@@ -650,7 +650,7 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
         else:
             logger.error(f"Flow '{triggered_flow.name}' is active but has no entry point step defined.")
             return False  # Failed to trigger
-    elif not contact.flow_state: # If no keyword flow, try a default flow for new contacts
+    elif not hasattr(contact, 'flow_state'): # If no keyword flow, try a default flow for new contacts
         lead_gen_flow = Flow.objects.filter(name="lead_generation", is_active=True).first()
         if lead_gen_flow:
             entry_point_step = FlowStep.objects.filter(flow=lead_gen_flow, is_entry_point=True).first()

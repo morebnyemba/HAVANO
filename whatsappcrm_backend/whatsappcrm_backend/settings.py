@@ -255,10 +255,10 @@ LOGGING = {
         'django': {'handlers': ['console'], 'level': os.getenv('DJANGO_LOG_LEVEL', 'INFO'), 'propagate': False},
         'django.request': {'handlers': ['console'], 'level': 'ERROR', 'propagate': False},
         'celery': {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
-        'meta_integration': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
-        'conversations': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
-        'flows': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
-        'customer_data': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
+        'meta_integration': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
+        'conversations': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
+        'flows': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
+        'customer_data': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': False},
     },
 }
 
