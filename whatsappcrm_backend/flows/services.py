@@ -9,6 +9,7 @@ from django.utils.dateparse import parse_datetime
 from django.db import transaction
 from django.apps import apps
 from django.forms.models import model_to_dict
+from django.db.models.fields.files import ImageFieldFile, FileField
 from jinja2 import Environment, select_autoescape, Undefined, pass_context
 from django.core.exceptions import ValidationError as DjangoValidationError # Renamed to avoid conflict with Pydantic
 from pydantic import ValidationError
@@ -470,6 +471,11 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                                     dict_obj[key] = value.isoformat()
                                 elif isinstance(value, Decimal):
                                     dict_obj[key] = str(value)
+                                elif isinstance(value, (ImageFieldFile, FileField)):
+                                    try:
+                                        dict_obj[key] = value.url if value else None
+                                    except ValueError: # Handles case where file doesn't exist but field is populated
+                                        dict_obj[key] = None
                             results_list.append(dict_obj)
                             
                         current_step_context[variable_name] = results_list

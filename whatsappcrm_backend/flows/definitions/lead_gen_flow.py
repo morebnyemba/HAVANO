@@ -36,9 +36,9 @@ LEAD_GENERATION_FLOW = {
             "type": "action",
             "config": {
                 "actions_to_run": [
-                    {"action_type": "update_contact_field", "field_path": "name", "value_template": "{{ user_full_name }}"},
+                    {"action_type": "update_contact_field", "field_path": "name", "value_template": "{{ user_full_name }}"}, # Updates Contact.name
                     {"action_type": "update_customer_profile", "fields_to_update": {
-                        "first_name": "{{ user_full_name.split(' ')[0] }}",
+                        "first_name": "{{ user_full_name.split(' ')[0] if ' ' in user_full_name else user_full_name }}",
                         "last_name": "{{ ' '.join(user_full_name.split(' ')[1:]) if ' ' in user_full_name else '' }}"
                     }}
                 ]
@@ -53,7 +53,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Thanks, {{ contact.customer_profile.first_name }}! What is the name of your company?"}
+                    "text": {"body": "Thanks, {{ customer_profile.first_name }}! What is the name of your company?"}
                 },
                 "reply_config": {
                     "expected_type": "text",
@@ -243,7 +243,7 @@ LEAD_GENERATION_FLOW = {
                     {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}"}},
                     {"action_type": "send_admin_notification", "message_template": (
                         "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
-                        "Name: {{ contact.customer_profile.name }}\n"
+                        "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name or '' }}\n"
                         "Company: {{ customer_profile.company }}\n"
                         "Email: {{ customer_profile.email }}\n"
                         "Notes:\n{{ lead_notes }}"
