@@ -130,7 +130,7 @@ LEAD_GENERATION_FLOW = {
                     "app_label": "products_and_services",
                     "model_name": "SoftwareProduct",
                     "variable_name": "product_options",
-                    "filters_template": {"is_active": True, "product__sku": "HAVANO-ERP"},
+                    "filters_template": {"is_active": True, "sku": "HAVANO-ERP"},
                     "order_by": ["name"],
                     "limit": 5
                 }]
