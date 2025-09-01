@@ -61,18 +61,11 @@ class Flow(models.Model):
                 'trigger_keywords': _("Trigger keywords cannot be empty or just whitespace.")
             })
         
-        # --- ADDED VALIDATION ---
-        # An active flow must have at least one step, and exactly one entry point.
-        if self.is_active:
-            # This check is efficient because self.steps.exists() uses a fast DB query.
-            # It requires the flow to be saved once before steps can be associated,
-            # so this validation works best on updates or after initial creation.
-            if self.pk and not self.steps.filter(is_entry_point=True).exists():
-                raise ValidationError({
-                    'is_active': _(
-                        "An active flow must have at least one step marked as an entry point."
-                    )
-            })
+        # --- VALIDATION REMOVED AS PER REQUEST ---
+        # The validation to ensure an active flow has an entry point has been temporarily removed
+        # to allow legacy scripts like create_flow.py to function.
+        # if self.is_active and self.pk and not self.steps.filter(is_entry_point=True).exists():
+        #     raise ValidationError({'is_active': _("An active flow must have at least one step marked as an entry point.")})
 
     def save(self, *args, **kwargs) -> None:
         if not self.friendly_name:
