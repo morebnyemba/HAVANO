@@ -375,8 +375,8 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if question_config.message_config and not is_re_execution: # Only send initial prompt if not a re-execution for fallback
                 try:
                     temp_msg_pydantic_config = StepConfigSendMessage.model_validate(question_config.message_config)
-                    # Wrap the config in 'message_config' to match the expected structure for 'send_message' steps
-                    dummy_config = {'message_config': temp_msg_pydantic_config.model_dump(exclude_none=True)}
+                    # Wrap the validated config in 'message_config' to match the expected structure for 'send_message' steps
+                    dummy_config = {'message_config': temp_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)}
                     dummy_send_step = FlowStep(
                         name=f"{step.name}_prompt", step_type="send_message", config=dummy_config
                     )
@@ -511,7 +511,11 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if end_flow_config.message_config:
                 try:
                     final_msg_pydantic_config = StepConfigSendMessage.model_validate(end_flow_config.message_config)
-                    dummy_end_msg_step = FlowStep(name=f"{step.name}_final_msg", step_type="send_message", config=final_msg_pydantic_config.model_dump())
+                    # Wrap the validated config in 'message_config' to avoid the warning in the recursive call
+                    dummy_config = {'message_config': final_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)}
+                    dummy_end_msg_step = FlowStep(
+                        name=f"{step.name}_final_msg", step_type="send_message", config=dummy_config
+                    )
                     send_actions, _ = _execute_step_actions(dummy_end_msg_step, contact, current_step_context)
                     actions_to_perform.extend(send_actions)
                 except ValidationError as ve:
@@ -664,8 +668,12 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
                     current_flow=lead_gen_flow,
                     current_step=entry_point_step,
                     flow_context_data={},  # Always start with an empty context
-                    started_at=timezone.now())
+                    started_at=timezone.now()
+                )
+                logger.info(f"Default flow '{lead_gen_flow.name}' triggered for new contact {contact.whatsapp_id}.")
                 return True
+            else:
+                logger.error(f"Default flow '{lead_gen_flow.name}' is active but has no entry point step defined. Cannot trigger for new contact {contact.whatsapp_id}.")
 
     logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
     return False # No flow triggered
@@ -1004,25 +1012,48 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
 
     actions_to_perform = []
     try:
+        contact_flow_state = ContactFlowState.objects.select_related('current_flow', 'current_step').filter(contact=contact).first()
+
+        # If no active flow, try to trigger one. This is the only time a user message can start a flow.
+        if not contact_flow_state:
+            logger.info(f"No active flow state for contact {contact.whatsapp_id}. Attempting to trigger a new flow.")
+            flow_was_triggered = _trigger_new_flow(contact, message_data, incoming_message_obj)
+            
+            if flow_was_triggered:
+                # A new flow was started. Execute its entry step's actions now.
+                contact_flow_state = ContactFlowState.objects.select_related('current_flow', 'current_step').filter(contact=contact).first()
+                entry_step = contact_flow_state.current_step
+                initial_context = contact_flow_state.flow_context_data or {}
+                
+                entry_actions, updated_context = _execute_step_actions(entry_step, contact, initial_context.copy())
+                actions_to_perform.extend(entry_actions)
+                
+                contact_flow_state.flow_context_data = updated_context
+                contact_flow_state.save(update_fields=['flow_context_data', 'last_updated_at'])
+                
+                # If the entry step was a question or ends the flow, we are done with this message.
+                if entry_step.step_type in ['question', 'end_flow', 'human_handover']:
+                    # The loop below will not run. We just process the actions from this first step.
+                    pass
+                else:
+                    # It's a fall-through step. We need to enter the main processing loop
+                    # with an "internal" message to check for transitions.
+                    message_data = {'type': 'internal_flow_start'}
+            else:
+                # No flow triggered, nothing more to do.
+                return []
+
         # --- Start of Main Flow Processing Loop ---
         # This loop will continue as long as the contact is in an active flow state.
         # It allows for "fall-through" steps (like 'action' steps) to be processed immediately.
         while True:
+            # Re-fetch state in each loop iteration for robustness
             is_internal_message = message_data.get('type', '').startswith('internal_')
             contact_flow_state = ContactFlowState.objects.select_related('current_flow', 'current_step').filter(contact=contact).first()
 
             if not contact_flow_state:
-                logger.info(f"No active flow state for contact {contact.whatsapp_id}. Attempting to trigger a new flow.")
-                
-                # _trigger_new_flow now returns a boolean and handles state creation.
-                flow_was_triggered = _trigger_new_flow(contact, message_data, incoming_message_obj)
-                
-                if flow_was_triggered:
-                    # A new flow was started, re-run the loop to process its first step.
-                    continue 
-                else:
-                    # No flow was triggered, so we are done.
-                    break 
+                logger.info(f"Flow state was cleared, exiting processing loop for contact {contact.id}.")
+                break # Flow was ended inside the loop.
             
             current_step = contact_flow_state.current_step
             flow_context = contact_flow_state.flow_context_data if contact_flow_state.flow_context_data is not None else {}
@@ -1030,7 +1061,6 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
             logger.debug(f"Handling active flow. Contact: {contact.whatsapp_id}, Current Step: '{current_step.name}' (Type: {current_step.step_type}). Context: {flow_context}")
 
             # --- Step 1: Process incoming message if the current step is a question ---
-            is_pass_through_step = True # Assume step is pass-through unless it's a question
             if current_step.step_type == 'question' and '_question_awaiting_reply_for' in flow_context:
                 # If we've arrived at a question step via an internal transition (fallthrough/switch),
                 # we must stop and wait for the user's actual reply. We should not process the
@@ -1090,6 +1120,12 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                     flow_context.pop('_fallback_count', None)
                 else:
                     logger.info(f"Reply for question step '{current_step.name}' was not valid. Expected: {expected_reply_type}. User text: {user_text}. Interactive ID: {interactive_reply_id}")
+            
+            # If this was a user message that was just processed (valid or not),
+            # we should not continue falling through steps in the same cycle.
+            # The next actions depend on the transition from the user's reply.
+            if not is_internal_message:
+                just_triggered_flow = False # Unset flag if it was set
 
             # --- Step 2: Evaluate transitions from the current step ---
             transitions = FlowTransition.objects.filter(current_step=current_step).select_related('next_step').order_by('priority')

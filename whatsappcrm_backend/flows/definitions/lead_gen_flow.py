@@ -36,11 +36,12 @@ LEAD_GENERATION_FLOW = {
             "type": "action",
             "config": {
                 "actions_to_run": [
-                    {"action_type": "update_contact_field", "field_path": "name", "value_template": "{{ user_full_name }}"},
-                    {"action_type": "update_customer_profile", "fields_to_update": {
-                        "first_name": "{{ user_full_name.split(' ')[0] }}",
-                        "last_name": "{{ ' '.join(user_full_name.split(' ')[1:]) if ' ' in user_full_name else '' }}"
-                    }}
+                    {
+                        "action_type": "update_customer_profile", 
+                        "fields_to_update": {
+                            "name": "{{ user_full_name }}"
+                        }
+                    }
                 ]
             },
             "transitions": [
@@ -53,7 +54,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Thanks, {{ contact.customer_profile.first_name }}! What is the name of your company?"}
+                    "text": {"body": "Thanks, {{ contact.customer_profile.name.split(' ')[0] }}! What is the name of your company?"}
                 },
                 "reply_config": {
                     "expected_type": "text",
@@ -124,7 +125,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_business_type",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Business Type: {{ business_type }}"}}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "Business Type: {{ business_type }}"}]
             },
             "transitions": [
                 {"to_step": "ask_reason_for_new_system", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -135,20 +136,10 @@ LEAD_GENERATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {
-                    "message_type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {"text": "Got it. What prompted you to look for a new system?"},
-                        "action": {
-                            "buttons": [
-                                {"type": "reply", "reply": {"id": "reason_broken", "title": "System is Broken"}},
-                                {"type": "reply", "reply": {"id": "reason_slow", "title": "System is Slow"}},
-                                {"type": "reply", "reply": {"id": "reason_new_biz", "title": "New Business"}}
-                            ]
-                        }
-                    }
+                    "message_type": "text",
+                    "text": {"body": "Got it. What prompted you to look for a new system?"}
                 },
-                "reply_config": {"save_to_variable": "reason_for_new_system", "expected_type": "interactive_id"}
+                "reply_config": {"save_to_variable": "reason_for_new_system", "expected_type": "text"}
             },
             "transitions": [
                 {"to_step": "process_reason", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -158,7 +149,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_reason",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ customer_profile.notes }}\nReason for new system: {{ reason_for_new_system }}"}}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nReason for new system: {{ reason_for_new_system }}"}]
             },
             "transitions": [
                 {"to_step": "ask_location", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -189,7 +180,7 @@ LEAD_GENERATION_FLOW = {
             "name": "query_product_options",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "query_model", "app_label": "products_and_services", "model_name": "SoftwareProduct", "variable_name": "product_options", "filters_template": {"is_active": True, "category__name__icontains": "HAVANOERP"}, "order_by": ["name"], "limit": 5}]
+                "actions_to_run": [{"action_type": "query_model", "app_label": "products_and_services", "model_name": "SoftwareProduct", "variable_name": "product_options", "filters_template": {"is_active": True}, "order_by": ["name"], "limit": 3}]
             },
             "transitions": [
                 {"to_step": "present_product_options", "priority": 10, "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}},
@@ -227,7 +218,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_product_choice",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ customer_profile.notes }}\nProduct Interest: {{ chosen_product_sku }}"}}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}"}]
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -249,17 +240,14 @@ LEAD_GENERATION_FLOW = {
             "type": "action",
             "config": {
                 "actions_to_run": [
-                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ customer_profile.notes }}\nFollow-up Time: {{ follow_up_time }}"}},
+                    {"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nFollow-up Time: {{ follow_up_time }}"},
+                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}"}},
                     {"action_type": "send_admin_notification", "message_template": (
                         "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
-                        "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name }}\n"
+                        "Name: {{ contact.customer_profile.name }}\n"
                         "Company: {{ customer_profile.company }}\n"
                         "Email: {{ customer_profile.email }}\n"
-                        "Business Type: {{ business_type }}\n"
-                        "Reason: {{ reason_for_new_system }}\n"
-                        "Location: {{ customer_location }}\n"
-                        "Product SKU: {{ chosen_product_sku or 'N/A' }}\n"
-                        "Follow-up: {{ follow_up_time }}"
+                        "Notes:\n{{ lead_notes }}"
                     )}
                 ]
             },
