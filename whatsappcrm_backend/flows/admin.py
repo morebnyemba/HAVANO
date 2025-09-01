@@ -19,15 +19,27 @@ class FlowStepInline(admin.TabularInline): # Or StackedInline
 
 @admin.register(Flow)
 class FlowAdmin(admin.ModelAdmin):
-    list_display = ('name', 'description', 'is_active', 'created_at', 'updated_at') # 'app_config',
-    search_fields = ('name', 'description')
+    list_display = ('friendly_name', 'name', 'is_active', 'entry_point_status', 'created_at', 'updated_at')
+    search_fields = ('name', 'friendly_name', 'description')
     list_filter = ('is_active', 'created_at') # 'app_config',
     inlines = [FlowStepInline]
     actions = ['activate_flows', 'deactivate_flows']
 
+    def get_queryset(self, request):
+        # Prefetch steps to optimize the entry_point_status method
+        return super().get_queryset(request).prefetch_related('steps')
+
+    def entry_point_status(self, obj):
+        from django.utils.html import format_html
+        if obj.steps.filter(is_entry_point=True).exists():
+            return format_html('<span style="color: green;">&#10004; Set</span>')
+        return format_html('<span style="color: red;">&#10060; Missing</span>')
+    entry_point_status.short_description = "Entry Point"
+
     def activate_flows(self, request, queryset):
         queryset.update(is_active=True)
     activate_flows.short_description = "Activate selected flows"
+    
 
     def deactivate_flows(self, request, queryset):
         queryset.update(is_active=False)
@@ -99,4 +111,3 @@ class ContactFlowStateAdmin(admin.ModelAdmin):
     def current_step_name(self, obj):
         return obj.current_step.name
     current_step_name.short_description = "Current Step"
-

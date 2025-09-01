@@ -375,7 +375,11 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if question_config.message_config and not is_re_execution: # Only send initial prompt if not a re-execution for fallback
                 try:
                     temp_msg_pydantic_config = StepConfigSendMessage.model_validate(question_config.message_config)
-                    dummy_send_step = FlowStep(name=f"{step.name}_prompt", step_type="send_message", config=temp_msg_pydantic_config.model_dump())
+                    # Wrap the config in 'message_config' to match the expected structure for 'send_message' steps
+                    dummy_config = {'message_config': temp_msg_pydantic_config.model_dump(exclude_none=True)}
+                    dummy_send_step = FlowStep(
+                        name=f"{step.name}_prompt", step_type="send_message", config=dummy_config
+                    )
                     send_actions, _ = _execute_step_actions(dummy_send_step, contact, current_step_context) # Pass current_step_context
                     actions_to_perform.extend(send_actions)
                 except ValidationError as ve:
