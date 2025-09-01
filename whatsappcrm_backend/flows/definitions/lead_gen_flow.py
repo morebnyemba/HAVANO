@@ -10,20 +10,18 @@ LEAD_GENERATION_FLOW = {
         {
             "name": "initial_greeting",
             "is_entry_point": True,
-            "step_type": "send_message",
+            "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "text",
-                    "text": {"body": "Welcome! To best assist you, I need a little more information."}
-                }
+                "message_type": "text",
+                "text": {"body": "Welcome! To best assist you, I need a little more information."}
             },
             "transitions": [
-                {"next_step": "ask_business_type", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_business_type", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "ask_business_type",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "interactive",
@@ -44,12 +42,12 @@ LEAD_GENERATION_FLOW = {
             },
             "transitions": [
                 {
-                    "next_step": "ask_other_business_type",
+                    "to_step": "ask_other_business_type",
                     "priority": 10,
                     "condition_config": {"type": "variable_equals", "variable_name": "business_type", "value": "other"}
                 },
                 {
-                    "next_step": "ask_reason_for_new_system",
+                    "to_step": "ask_reason_for_new_system",
                     "priority": 100,
                     "condition_config": {"type": "always_true"}
                 }
@@ -57,7 +55,7 @@ LEAD_GENERATION_FLOW = {
         },
         {
             "name": "ask_other_business_type",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "text",
@@ -67,13 +65,13 @@ LEAD_GENERATION_FLOW = {
             },
             "transitions": [
                 {
-                    "next_step": "ask_reason_for_new_system", "priority": 1, "condition_config": {"type": "always_true"}
+                    "to_step": "ask_reason_for_new_system", "priority": 1, "condition_config": {"type": "always_true"}
                 }
             ]
         },
         {
             "name": "ask_reason_for_new_system",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "text",
@@ -84,17 +82,17 @@ LEAD_GENERATION_FLOW = {
             },
             "transitions": [
                 {
-                    "next_step": "handle_urgent_case",
+                    "to_step": "handle_urgent_case",
                     "priority": 10,
                     "condition_config": {"type": "user_reply_contains_keyword", "keyword": "broken", "case_sensitive": False}
                 },
                 {
-                    "next_step": "handle_urgent_case",
+                    "to_step": "handle_urgent_case",
                     "priority": 11, # Slightly lower priority than 'broken'
                     "condition_config": {"type": "user_reply_contains_keyword", "keyword": "slow", "case_sensitive": False}
                 },
                 {
-                    "next_step": "ask_location",
+                    "to_step": "ask_location",
                     "priority": 100,
                     "condition_config": {"type": "always_true"}
                 }
@@ -102,15 +100,15 @@ LEAD_GENERATION_FLOW = {
         },
         {
             "name": "handle_urgent_case",
-            "step_type": "send_message",
-            "config": {"message_config": {"message_type": "text", "text": {"body": "I see. It sounds like this is urgent. Let me get your location so we can proceed."}}},
+            "type": "send_message",
+            "config": {"message_type": "text", "text": {"body": "I see. It sounds like this is urgent. Let me get your location so we can proceed."}},
             "transitions": [
-                {"next_step": "ask_location", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_location", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "ask_location",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "text",
@@ -120,12 +118,12 @@ LEAD_GENERATION_FLOW = {
                 "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please enter your location."}
             },
             "transitions": [
-                {"next_step": "query_product_options", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "query_product_options", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "query_product_options",
-            "step_type": "action",
+            "type": "action",
             "config": {
                 "actions_to_run": [{
                     "action_type": "query_model",
@@ -139,12 +137,12 @@ LEAD_GENERATION_FLOW = {
             },
             "transitions": [
                 {
-                    "next_step": "present_and_record_product_choice",
+                    "to_step": "present_and_record_product_choice",
                     "priority": 10,
                     "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}
                 },
                 {
-                    "next_step": "handle_no_products_found",
+                    "to_step": "handle_no_products_found",
                     "priority": 100,
                     "condition_config": {"type": "always_true"}
                 }
@@ -152,20 +150,18 @@ LEAD_GENERATION_FLOW = {
         },
         {
             "name": "handle_no_products_found",
-            "step_type": "send_message",
+            "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "text",
-                    "text": {"body": "Apologies, but we couldn't find any specific products for your location at this moment. We've noted your interest, however."}
-                }
+                "message_type": "text",
+                "text": {"body": "Apologies, but we couldn't find any specific products for your location at this moment. We've noted your interest, however."}
             },
             "transitions": [
-                {"next_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "present_and_record_product_choice",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "interactive",
@@ -186,24 +182,24 @@ LEAD_GENERATION_FLOW = {
                 "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a product from the provided options by tapping the button and choosing from the list."}
             },
             "transitions": [
-                {"next_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "ask_when_to_follow_up",
-            "step_type": "question",
+            "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "Great! When would be a good time for our team to follow up with you?"}},
                 "reply_config": {"save_to_variable": "follow_up_time", "expected_type": "text"},
                 "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please let us know when we should follow up."}
             },
             "transitions": [
-                {"next_step": "send_summary_and_end", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "send_summary_and_end", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "send_summary_and_end",
-            "step_type": "action",
+            "type": "action",
             "config": {
                 "actions_to_run": [{
                     "action_type": "send_admin_notification",
@@ -211,12 +207,12 @@ LEAD_GENERATION_FLOW = {
                 }]
             },
             "transitions": [
-                {"next_step": "end_flow_final", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "end_flow_final", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
             "name": "end_flow_final",
-            "step_type": "end_flow",
+            "type": "end_flow",
             "config": {"message_config": {"message_type": "text", "text": {"body": "Thank you! We have collected your information. Our team will contact you soon."}}},
             "transitions": []
         }
