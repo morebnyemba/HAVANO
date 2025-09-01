@@ -10,191 +10,136 @@ LEAD_GENERATION_FLOW = {
         {
             "name": "initial_greeting",
             "is_entry_point": True,
-            "type": "send_message",
-            "config": {
-                "message_type": "text",
-                "text": {"body": "Welcome! To best assist you, I need a little more information."}
-            },
-            "transitions": [
-                {"to_step": "ask_business_type", "priority": 1, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "ask_business_type",
-            "type": "question",
-            "config": {
-                "message_config": {
-                    "message_type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {"text": "What type of business do you run?"},
-                        "action": {
-                            "buttons": [
-                                {"type": "reply", "reply": {"id": "retail", "title": "Retail"}},
-                                {"type": "reply", "reply": {"id": "restaurant", "title": "Restaurant"}},
-                                {"type": "reply", "reply": {"id": "other", "title": "Other"}}
-                            ]
-                        }
-                    }
-                },
-                "reply_config": {"save_to_variable": "business_type", "expected_type": "interactive_id"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a business type from the buttons."}
-            },
-            "transitions": [
-                {
-                    "to_step": "ask_other_business_type",
-                    "priority": 10,
-                    "condition_config": {"type": "variable_equals", "variable_name": "business_type", "value": "other"}
-                },
-                {
-                    "to_step": "ask_reason_for_new_system",
-                    "priority": 100,
-                    "condition_config": {"type": "always_true"}
-                }
-            ]
-        },
-        {
-            "name": "ask_other_business_type",
             "type": "question",
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Could you please specify your business type?"}
+                    "text": {"body": "Welcome to Havano! To get started, what is your full name?"}
                 },
-                "reply_config": {"save_to_variable": "other_business_type_details", "expected_type": "text"}
-            },
-            "transitions": [
-                {
-                    "to_step": "ask_reason_for_new_system", "priority": 1, "condition_config": {"type": "always_true"}
+                "reply_config": {
+                    "expected_type": "text",
+                    "save_to_variable": "user_full_name",
+                    "validation_regex": "^.{3,}"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please enter a valid name."
                 }
-            ]
-        },
-        {
-            "name": "ask_reason_for_new_system",
-            "type": "question",
-            "config": {
-                "message_config": {
-                    "message_type": "text",
-                    "text": {"body": "What is the main reason you are looking for a new system?"}
-                },
-                "reply_config": {"save_to_variable": "reason_for_new_system", "expected_type": "text"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please tell me the main reason you're looking for a new system."}
             },
             "transitions": [
-                {
-                    "to_step": "handle_urgent_case",
-                    "priority": 10,
-                    "condition_config": {"type": "user_reply_contains_keyword", "keyword": "broken", "case_sensitive": False}
-                },
-                {
-                    "to_step": "handle_urgent_case",
-                    "priority": 11, # Slightly lower priority than 'broken'
-                    "condition_config": {"type": "user_reply_contains_keyword", "keyword": "slow", "case_sensitive": False}
-                },
-                {
-                    "to_step": "ask_location",
-                    "priority": 100,
-                    "condition_config": {"type": "always_true"}
-                }
+                {"to_step": "process_name", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "user_full_name"}}
             ]
         },
         {
-            "name": "handle_urgent_case",
-            "type": "send_message",
-            "config": {"message_type": "text", "text": {"body": "I see. It sounds like this is urgent. Let me get your location so we can proceed."}},
-            "transitions": [
-                {"to_step": "ask_location", "priority": 1, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "ask_location",
-            "type": "question",
-            "config": {
-                "message_config": {
-                    "message_type": "text",
-                    "text": {"body": "Where are you located?"}
-                },
-                "reply_config": {"save_to_variable": "customer_location", "expected_type": "text"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please enter your location."}
-            },
-            "transitions": [
-                {"to_step": "query_product_options", "priority": 1, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "query_product_options",
+            "name": "process_name",
             "type": "action",
             "config": {
                 "actions_to_run": [{
-                    "action_type": "query_model",
-                    "app_label": "products_and_services",
-                    "model_name": "SoftwareProduct",
-                    "variable_name": "product_options",
-                    "filters_template": {"is_active": True, "sku": "HAVANO-ERP"},
-                    "order_by": ["name"],
-                    "limit": 5
+                    "action_type": "update_customer_profile",
+                    "fields_to_update": {
+                        "first_name": "{{ user_full_name.split(' ')[0] }}",
+                        "last_name": "{{ ' '.join(user_full_name.split(' ')[1:]) }}"
+                    }
                 }]
             },
             "transitions": [
-                {
-                    "to_step": "present_and_record_product_choice",
-                    "priority": 10,
-                    "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}
-                },
-                {
-                    "to_step": "handle_no_products_found",
-                    "priority": 100,
-                    "condition_config": {"type": "always_true"}
-                }
+                {"to_step": "ask_company", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "handle_no_products_found",
-            "type": "send_message",
-            "config": {
-                "message_type": "text",
-                "text": {"body": "Apologies, but we couldn't find any specific products for your location at this moment. We've noted your interest, however."}
-            },
-            "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "present_and_record_product_choice",
+            "name": "ask_company",
             "type": "question",
             "config": {
                 "message_config": {
-                    "message_type": "interactive",
-                    "interactive": {
-                        "type": "list",
-                        "header": {"type": "text", "text": "Product Options"},
-                        "body": {"text": "Here are some options. Which one did you like most?"},
-                        "action": {
-                            "button": "View Products",
-                            "sections": [{
-                                "title": "Available Products",
-                                "rows": "{{ product_options | to_interactive_rows }}"
-                            }]
-                        }
-                    }
+                    "message_type": "text",
+                    "text": {"body": "Thanks, {{ customer_profile.first_name }}! What is the name of your company?"}
                 },
-                "reply_config": {"save_to_variable": "chosen_product_sku", "expected_type": "interactive_id"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a product from the provided options by tapping the button and choosing from the list."}
+                "reply_config": {
+                    "expected_type": "text",
+                    "save_to_variable": "company_name"
+                }
             },
             "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "process_company", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "company_name"}}
             ]
         },
         {
-            "name": "ask_when_to_follow_up",
-            "type": "question",
+            "name": "process_company",
+            "type": "action",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "Great! When would be a good time for our team to follow up with you?"}},
-                "reply_config": {"save_to_variable": "follow_up_time", "expected_type": "text"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please let us know when we should follow up."}
+                "actions_to_run": [{
+                    "action_type": "update_customer_profile",
+                    "fields_to_update": {"company": "{{ company_name }}"}
+                }]
             },
             "transitions": [
-                {"to_step": "send_summary_and_end", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_email", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "ask_email",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Great. And what is your business email address?"}
+                },
+                "reply_config": {
+                    "expected_type": "email",
+                    "save_to_variable": "user_email"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "That doesn't seem to be a valid email address. Please try again (e.g., name@example.com)."
+                }
+            },
+            "transitions": [
+                {"to_step": "process_email", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "user_email"}}
+            ]
+        },
+        {
+            "name": "process_email",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "update_customer_profile",
+                    "fields_to_update": {"email": "{{ user_email }}"}
+                }]
+            },
+            "transitions": [
+                {"to_step": "ask_interest", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "ask_interest",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Thank you. To help us prepare, what specific products or services are you interested in?"}
+                },
+                "reply_config": {
+                    "expected_type": "text",
+                    "save_to_variable": "user_interest"
+                }
+            },
+            "transitions": [
+                {"to_step": "process_interest", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "user_interest"}}
+            ]
+        },
+        {
+            "name": "process_interest",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "update_customer_profile",
+                    "fields_to_update": {"notes": "{{ (customer_profile.notes + '\n') if customer_profile.notes else '' }}Initial interest: {{ user_interest }}"}
+                }]
+            },
+            "transitions": [
+                {"to_step": "send_summary_and_end", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -203,7 +148,12 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "actions_to_run": [{
                     "action_type": "send_admin_notification",
-                    "message_template": "New Lead from {{ contact.name or contact.whatsapp_id }}:\n- Business Type: {{ business_type }}{% if other_business_type_details %}\n- Other Details: {{ other_business_type_details }}{% endif %}\n- Reason: {{ reason_for_new_system }}\n- Location: {{ customer_location }}{% if chosen_product_sku %}\n- Chosen Product SKU: {{ chosen_product_sku }}{% endif %}\n- Follow-up Time: {{ follow_up_time }}"
+                    "message_template": (
+                        "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
+                        "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name }}\n"
+                        "Company: {{ customer_profile.company }}\n"
+                        "Email: {{ customer_profile.email }}\n"
+                        "Interest: {{ user_interest }}")
                 }]
             },
             "transitions": [
