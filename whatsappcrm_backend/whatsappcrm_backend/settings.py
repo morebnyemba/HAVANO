@@ -333,7 +333,7 @@ JAZZMIN_UI_TWEAKS = {
 
 # The domain of your backend API that the frontend needs to connect to.
 # It's best to set this in your .env file.
-BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'crmbackend.lifeinternationalministries.com')
+BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'autochats.havano.online')
 FRONTEND_DOMAIN_FOR_CSP = os.getenv('FRONTEND_DOMAIN_FOR_CSP', 'apps1.havano.online')
 
 # A basic but effective CSP. You may need to add other sources (e.g., CDNs)
