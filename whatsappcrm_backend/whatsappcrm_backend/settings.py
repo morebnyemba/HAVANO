@@ -336,19 +336,22 @@ JAZZMIN_UI_TWEAKS = {
 BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'autochats.havano.online')
 FRONTEND_DOMAIN_FOR_CSP = os.getenv('FRONTEND_DOMAIN_FOR_CSP', 'apps1.havano.online')
 
-# A basic but effective CSP. You may need to add other sources (e.g., CDNs)
-# for scripts, styles, fonts, or images depending on your frontend's needs.
-CSP_DEFAULT_SRC = ("'self'",)
-CSP_CONNECT_SRC = (
-    "'self'",
-    f"https://{BACKEND_DOMAIN_FOR_CSP}",
-    f"wss://{BACKEND_DOMAIN_FOR_CSP}",
-    f"https://{FRONTEND_DOMAIN_FOR_CSP}",
-    f"wss://{FRONTEND_DOMAIN_FOR_CSP}",
-)
-CSP_SCRIPT_SRC = ("'self'", "'unsafe-inline'", "'unsafe-eval'") # 'unsafe-inline/eval' might be needed for dev
-CSP_STYLE_SRC = ("'self'", "'unsafe-inline'") # 'unsafe-inline' is often needed for styled-components etc.
-CSP_IMG_SRC = ("'self'", "data:", "blob:")
-CSP_FONT_SRC = ("'self'",)
-CSP_OBJECT_SRC = ("'none'",)
-CSP_FRAME_ANCESTORS = ("'none'",)
+# New format for django-csp >= 4.0
+CONTENT_SECURITY_POLICY = {
+    'DIRECTIVES': {
+        'default-src': ("'self'",),
+        'connect-src': (
+            "'self'",
+            f"https://{BACKEND_DOMAIN_FOR_CSP}",
+            f"wss://{BACKEND_DOMAIN_FOR_CSP}",
+            f"https://{FRONTEND_DOMAIN_FOR_CSP}",
+            f"wss://{FRONTEND_DOMAIN_FOR_CSP}",
+        ),
+        'script-src': ("'self'", "'unsafe-inline'", "'unsafe-eval'"),
+        'style-src': ("'self'", "'unsafe-inline'"),
+        'img-src': ("'self'", "data:", "blob:"),
+        'font-src': ("'self'",),
+        'object-src': ("'none'",),
+        'frame-ancestors': ("'none'",),
+    }
+}
