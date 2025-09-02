@@ -294,10 +294,12 @@ LEAD_GENERATION_FLOW = {
             "name": "show_product_details",
             "type": "send_message",
             "config": {
-                "message_type": "image",
-                "image": {
-                    "link": "{{ chosen_product_details.0.image }}",
-                    "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
+                "message_config": {
+                    "message_type": "image",
+                    "image": {
+                        "link": "{{ chosen_product_details.0.image }}",
+                        "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
+                    }
                 }
             },
             "transitions": [
@@ -329,7 +331,12 @@ LEAD_GENERATION_FLOW = {
         {
             "name": "handle_no_products_found",
             "type": "send_message",
-            "config": {"message_type": "text", "text": {"body": "Apologies, I couldn't find specific product options right now. A team member will get in touch with a customized quote."}},
+            "config": {
+                "message_config": {
+                    "message_type": "text", 
+                    "text": {"body": "Apologies, I couldn't find specific product options right now. A team member will get in touch with a customized quote."}
+                }
+            },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
