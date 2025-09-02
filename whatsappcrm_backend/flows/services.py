@@ -15,6 +15,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError # Re
 from pydantic import ValidationError
 from django.conf import settings
 from datetime import date, datetime
+import re
 from decimal import Decimal, InvalidOperation
 import json
 
@@ -675,23 +676,31 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
     Returns:
         True if a flow was triggered, False otherwise.
     """
-    message_text_body = None
-    if message_data.get('type') == 'text':
-        message_text_body = message_data.get('text', {}).get('body', '').lower().strip()
+    message_text_body = message_data.get('text', {}).get('body', '').strip() # Keep original case for extraction
+    message_text_lower = message_text_body.lower()
 
-    triggered_flow = None    
+    triggered_flow = None
+    initial_context = {} # To hold any data extracted from the trigger
+    
     active_flows = Flow.objects.filter(is_active=True).order_by('name')
 
     if message_text_body:  # Only attempt keyword trigger if there's text
         for flow_candidate in active_flows:
             if isinstance(flow_candidate.trigger_keywords, list):
                 for keyword in flow_candidate.trigger_keywords:
-                    # Ensure keyword is a non-empty string before lowercasing
-                    if (flow_candidate.trigger_keywords and # Checks if there are trigger_keywords
-                            isinstance(keyword, str) and keyword.strip() and 
-                            keyword.strip().lower() in message_text_body and # Then normal process continues if there are trigger_keywords
-                            (not hasattr(contact, 'flow_state'))): # Flow has not started
+                    if keyword.strip().lower() in message_text_lower and (not hasattr(contact, 'flow_state')):
                         triggered_flow = flow_candidate
+                        
+                        # --- NEW: Extract dynamic category from trigger message ---
+                        # Regex to find content in double quotes or asterisks
+                        match = re.search(r'"([^"]+)"|\*([^*]+)\*', message_text_body)
+                        if match:
+                            # group(1) is for quotes, group(2) is for asterisks
+                            extracted_category = match.group(1) or match.group(2)
+                            if extracted_category:
+                                initial_context['product_category_from_trigger'] = extracted_category.strip()
+                                logger.info(f"Extracted product category '{extracted_category.strip()}' from trigger for flow '{flow_candidate.name}'.")
+                        
                         logger.info(f"Keyword '{keyword}' triggered flow '{flow_candidate.name}' for contact {contact.whatsapp_id}.")
                         break
             if triggered_flow:
@@ -702,23 +711,22 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
         if entry_point_step:
             logger.info(f"Setting up new flow '{triggered_flow.name}' for contact {contact.whatsapp_id} at entry step '{entry_point_step.name}'.")
 
-            # Clear any existing flow state before starting a new one by keyword
             _clear_contact_flow_state(contact)
 
             ContactFlowState.objects.create(
                 contact=contact,
                 current_flow=triggered_flow,
                 current_step=entry_point_step,
-                flow_context_data={},  # Always start with an empty context
+                flow_context_data=initial_context, # Pass the extracted context
                 started_at=timezone.now()
             )
-            return True  # Successfully triggered
+            return True
         else:
             logger.error(f"Flow '{triggered_flow.name}' is active but has no entry point step defined.")
-            return False  # Failed to trigger
+            return False
 
     logger.info(f"No active flow triggered for contact {contact.whatsapp_id} with message: {message_text_body[:100] if message_text_body else message_data.get('type')}")
-    return False # No flow triggered
+    return False
 
 
 def _evaluate_transition_condition(transition: FlowTransition, contact: Contact, message_data: dict, flow_context: dict, incoming_message_obj: Message) -> bool:

@@ -45,10 +45,27 @@ services:
       - backend
     restart: unless-stopped
 
-  celery_worker:
+  celery_io_worker:
     build: ./whatsappcrm_backend
-    container_name: whatsappcrm_celery_worker
-    command: celery -A whatsappcrm_backend worker -l INFO
+    container_name: whatsappcrm_celery_io_worker
+    # This worker handles I/O-bound tasks from the default 'celery' queue.
+    # Concurrency is set higher than CPU cores as these tasks are often waiting.
+    command: celery -A whatsappcrm_backend worker -Q celery -l INFO --concurrency=4
+    volumes:
+      - ./whatsappcrm_backend:/app
+    env_file:
+      - ./whatsappcrm_backend/.env.prod
+    depends_on:
+      - redis
+      - db
+    restart: unless-stopped
+
+  celery_cpu_worker:
+    build: ./whatsappcrm_backend
+    container_name: whatsappcrm_celery_cpu_worker
+    # This worker handles CPU-intensive tasks from the 'cpu_heavy' queue.
+    # Concurrency is set to 1 to dedicate one CPU core to these tasks.
+    command: celery -A whatsappcrm_backend worker -Q cpu_heavy -l INFO --concurrency=1
     volumes:
       - ./whatsappcrm_backend:/app
     env_file:

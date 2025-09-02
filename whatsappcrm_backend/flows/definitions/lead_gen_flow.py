@@ -8,8 +8,37 @@ LEAD_GENERATION_FLOW = {
     "is_active": True,
     "steps": [
         {
-            "name": "ask_name",
+            "name": "check_customer_status",
             "is_entry_point": True,
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "set_context_variable",
+                    "variable_name": "is_returning_customer",
+                    "value_template": "{{ 'yes' if customer_profile.first_name else 'no' }}"
+                }]
+            },
+            "transitions": [
+                {"to_step": "greet_returning_customer", "priority": 0, "condition_config": {"type": "variable_equals", "variable_name": "is_returning_customer", "value": "yes"}},
+                {"to_step": "ask_name", "priority": 1, "condition_config": {"type": "always_true"}},
+            ]
+        },
+        {
+            "name": "greet_returning_customer",
+            "type": "send_message",
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Welcome back, {{ customer_profile.first_name }}! Let's find what you're looking for."}
+                }
+            },
+            "transitions": [
+                {"to_step": "check_for_trigger_category", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "ask_name",
+            "is_entry_point": False,
             "type": "question",
             "config": {
                 "message_config": {
@@ -239,18 +268,49 @@ LEAD_GENERATION_FLOW = {
                 "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"city": "{{ customer_location }}"}}]
             },
             "transitions": [
-                {"to_step": "query_product_options", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "check_for_trigger_category", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "query_product_options",
+            "name": "check_for_trigger_category",
+            "type": "action",
+            "config": {"actions_to_run": []},
+            "transitions": [
+                {"to_step": "query_by_category", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "product_category_from_trigger"}},
+                {"to_step": "query_all_products", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "query_by_category",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "query_model",
+                    "app_label": "products_and_services",
+                    "model_name": "SoftwareProduct",
+                    "variable_name": "product_options",
+                    "filters_template": {
+                        "is_active": True,
+                        "category__name__icontains": "{{ product_category_from_trigger }}"
+                    },
+                    "order_by": ["name"],
+                    "limit": 3
+                }]
+            },
+            "transitions": [
+                {"to_step": "present_product_options", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}},
+                {"to_step": "handle_no_products_found", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "query_all_products",
             "type": "action",
             "config": {
                 "actions_to_run": [{"action_type": "query_model", "app_label": "products_and_services", "model_name": "SoftwareProduct", "variable_name": "product_options", "filters_template": {"is_active": True}, "order_by": ["name"], "limit": 3}]
             },
             "transitions": [
-                {"to_step": "present_product_options", "priority": 10, "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}},
-                {"to_step": "handle_no_products_found", "priority": 100, "condition_config": {"type": "always_true"}}
+                {"to_step": "present_product_options", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "product_options.0"}},
+                {"to_step": "handle_no_products_found", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
