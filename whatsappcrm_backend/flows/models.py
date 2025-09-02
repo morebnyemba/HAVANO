@@ -131,13 +131,16 @@ class FlowStep(models.Model):
             raise ValidationError({'config': _("Config must be a valid JSON object (dictionary).")})
 
         if self.step_type == 'send_message':
-            # As per your services.py, the FlowStep.config *is* the message_config if flat,
-            # or it's nested under a "message_config" key.
-            # Assuming the flatter structure based on recent discussion on webhook output:
-            # FlowStep.config = {"message_type": "text", "text": {"body": "..."}}
-            if not self.config.get('message_type'):
+            # For consistency with 'question' steps, 'send_message' configs are nested.
+            # The runtime logic in services.py expects this structure.
+            message_config = self.config.get('message_config')
+            if not isinstance(message_config, dict):
                 raise ValidationError({
-                    'config': _("For 'send_message' steps, the config must include a 'message_type' key.")
+                    'config': _("For 'send_message' steps, the config must include a 'message_config' object.")
+                })
+            if not message_config.get('message_type'):
+                raise ValidationError({
+                    'config': _("The 'message_config' for 'send_message' steps must include a 'message_type' key.")
                 })
             # You could add more checks here, e.g., if 'message_type' is 'text', ensure 'text' key exists
             # if self.config.get('message_type') == 'text' and 'text' not in self.config:
