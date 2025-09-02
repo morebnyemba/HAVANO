@@ -574,11 +574,11 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
     if current_step.step_type == 'question':
         max_retries = fallback_config.max_retries
         current_fallback_count = updated_context.get('_fallback_count', 0)
-
+ 
         if fallback_config.action == 're_prompt' and current_fallback_count < max_retries:
             logger.info(f"Fallback: Re-prompting question step '{current_step.name}' for contact {contact.id} (Attempt {current_fallback_count + 1}/{max_retries}).")
             updated_context['_fallback_count'] = current_fallback_count + 1
-            
+ 
             re_prompt_message_text = fallback_config.re_prompt_message_text
             if re_prompt_message_text:
                 resolved_re_prompt_text = _resolve_value(re_prompt_message_text, updated_context, contact)
@@ -590,12 +590,31 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
                 step_actions, re_executed_context = _execute_step_actions(current_step, contact, updated_context, is_re_execution=True)
                 actions_to_perform.extend(step_actions)
                 updated_context = re_executed_context
-            
+ 
             # Save the updated context (with incremented fallback_count) and keep the user in the step
             contact_flow_state.flow_context_data = updated_context
             contact_flow_state.save(update_fields=['flow_context_data', 'last_updated_at'])
             return actions_to_perform
-
+        else: # Retries exhausted or action is not re_prompt
+            action_after_retries = fallback_config.action_after_retries
+            if action_after_retries:
+                logger.info(f"Fallback retries exhausted for step '{current_step.name}'. Executing action_after_retries: '{action_after_retries}'.")
+                # Create a dummy step to execute the final fallback action
+                dummy_fallback_step = FlowStep(
+                    name=f"{current_step.name}_fallback_action",
+                    step_type=action_after_retries,
+                    config=fallback_config.config_after_retries or {}
+                )
+                # We pass the current context to the action, so it can use collected data in messages.
+                fallback_actions, _ = _execute_step_actions(dummy_fallback_step, contact, updated_context)
+                actions_to_perform.extend(fallback_actions)
+                return actions_to_perform
+            else:
+                # Default behavior if no action_after_retries is defined: end the flow silently.
+                logger.warning(f"Fallback retries exhausted for step '{current_step.name}' but no 'action_after_retries' defined. Ending flow for contact {contact.id}.")
+                actions_to_perform.append({'type': '_internal_command_clear_flow_state'})
+                return actions_to_perform
+ 
     # Scenario 2: It's a non-question step with no valid transition (a "dead end").
     if current_step.step_type != 'question':
         logger.error(
@@ -1024,6 +1043,10 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
             if flow_was_triggered:
                 # A new flow was started. Execute its entry step's actions now.
                 contact_flow_state = ContactFlowState.objects.select_related('current_flow', 'current_step').filter(contact=contact).first()
+                if not contact_flow_state:
+                    logger.warning(f"Flow was triggered for contact {contact.id} but no state was found immediately after (likely ended on first step). Exiting.")
+                    return []
+
                 entry_step = contact_flow_state.current_step
                 initial_context = contact_flow_state.flow_context_data or {}
                 
@@ -1035,8 +1058,18 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 
                 # If the entry step was a question or ends the flow, we are done with this message.
                 if entry_step.step_type in ['question', 'end_flow', 'human_handover']:
-                    # The loop below will not run. We just process the actions from this first step.
-                    pass
+                    # A question step should not fall through. It should wait for the next message.
+                    # So we process its actions and exit, preventing the main loop from running on the same message.
+                    # The same applies for end_flow and human_handover, which terminate the flow logic for this cycle.
+                    final_actions_for_meta_view = []
+                    for action in actions_to_perform:
+                        if action.get('type') == '_internal_command_clear_flow_state':
+                            _clear_contact_flow_state(contact)
+                            logger.debug(f"Contact {contact.id}: Processed internal command to clear flow state from entry step.")
+                        elif action.get('type') == 'send_whatsapp_message':
+                            final_actions_for_meta_view.append(action)
+                    
+                    return final_actions_for_meta_view
                 else:
                     # It's a fall-through step. We need to enter the main processing loop
                     # with an "internal" message to check for transitions.
@@ -1092,28 +1125,39 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 value_to_save = None
 
                 if expected_reply_type == 'text' and user_text:
-                    value_to_save = user_text; reply_is_valid = True
+                    # For text, first check regex if it exists
+                    if validation_regex_ctx:
+                        if re.match(validation_regex_ctx, user_text):
+                            value_to_save = user_text
+                            reply_is_valid = True
+                    else: # No regex, any text is valid
+                        value_to_save = user_text
+                        reply_is_valid = True
                 elif expected_reply_type == 'email':
                     email_r = validation_regex_ctx or r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
                     if user_text and re.match(email_r, user_text):
-                        value_to_save = user_text; reply_is_valid = True
+                        value_to_save = user_text
+                        reply_is_valid = True
                 elif expected_reply_type == 'number' and user_text:
                     try:
-                        value_to_save = float(user_text) if '.' in user_text or (validation_regex_ctx and '.' in validation_regex_ctx) else int(user_text)
-                        reply_is_valid = True
-                        if validation_regex_ctx and not re.match(validation_regex_ctx, str(value_to_save)):
-                            reply_is_valid = False; value_to_save = None
-                    except ValueError: pass
+                        parsed_num = float(user_text) if '.' in user_text or (validation_regex_ctx and '.' in validation_regex_ctx) else int(user_text)
+                        # Now check regex against the string representation of the parsed number
+                        if validation_regex_ctx:
+                            if re.match(validation_regex_ctx, str(parsed_num)):
+                                value_to_save = parsed_num
+                                reply_is_valid = True
+                        else:
+                            value_to_save = parsed_num
+                            reply_is_valid = True
+                    except ValueError:
+                        pass # reply_is_valid remains False
                 elif expected_reply_type == 'interactive_id' and interactive_reply_id:
-                    value_to_save = interactive_reply_id; reply_is_valid = True
+                    value_to_save = interactive_reply_id
+                    reply_is_valid = True
                 elif expected_reply_type == 'image' and image_payload:
                     value_to_save = image_payload.get('id') # Save the WhatsApp Media ID
                     if value_to_save:
                         reply_is_valid = True
-                
-                if validation_regex_ctx and not reply_is_valid and user_text and expected_reply_type == 'text':
-                    if re.match(validation_regex_ctx, user_text):
-                        value_to_save = user_text; reply_is_valid = True
                 
                 if reply_is_valid and variable_to_save_name:
                     flow_context[variable_to_save_name] = value_to_save

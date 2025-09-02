@@ -1,97 +1,59 @@
 # whatsappcrm_backend/flows/schemas.py
-from __future__ import annotations
-from pydantic import BaseModel, Field, model_validator
-from typing import List, Dict, Any, Optional, Union, Literal
+from pydantic import BaseModel, Field, validator
+from typing import Dict, Any, Optional, List, Literal, Union
 
-# --- Common Reusable Schemas ---
+# --- Base Message Component Schemas ---
 
-class MediaMessageContent(BaseModel):
-    """
-    Configuration for media messages (image, document, audio, video, sticker).
-    Can use either a local MediaAsset primary key or a direct WhatsApp media ID/link.
-    """
-    asset_pk: Optional[int] = Field(None, description="Primary key of a MediaAsset from the media library.")
-    id: Optional[str] = Field(None, description="Direct WhatsApp Media ID.")
-    link: Optional[str] = Field(None, description="Direct public URL to the media.")
-    caption: Optional[str] = Field(None, description="Caption for the media.")
-    filename: Optional[str] = Field(None, description="Filename for documents.")
-
-    @model_validator(mode='after')
-    def check_one_source(self) -> 'MediaMessageContent':
-        # This validator is for basic structural checks. The service layer performs
-        # the definitive check after template resolution, as any of these fields
-        # could be a template string.
-        return self
-
-class TextMessageContent(BaseModel):
+class TextContent(BaseModel):
     body: str
     preview_url: bool = False
 
-class LocationPayload(BaseModel):
-    latitude: float
-    longitude: float
-    name: Optional[str] = None
-    address: Optional[str] = None
+class MediaMessageContent(BaseModel):
+    asset_pk: Optional[int] = None
+    id: Optional[str] = None
+    link: Optional[str] = None
+    caption: Optional[str] = None
+    filename: Optional[str] = None # Specific to documents
 
-# Schemas for Interactive Messages
-class InteractiveReplyButton(BaseModel):
-    id: str = Field(..., max_length=256)
-    title: str = Field(..., max_length=20)
-
+# Interactive Message Schemas
 class InteractiveButton(BaseModel):
-    type: Literal["reply"] = "reply"
-    reply: InteractiveReplyButton
+    type: Literal['reply'] = 'reply'
+    reply: Dict[str, str] # e.g., {"id": "unique-id", "title": "Click me"}
 
 class InteractiveAction(BaseModel):
-    buttons: List[InteractiveButton] = Field(..., max_length=3)
+    buttons: Optional[List[InteractiveButton]] = None
+    # TODO: Add list message sections here if needed
+    # sections: Optional[List[...]] = None
 
 class InteractiveBody(BaseModel):
     text: str
 
 class InteractiveHeader(BaseModel):
-    type: Literal["text", "video", "image", "document"]
-    text: Optional[str] = Field(None, max_length=60)
-    video: Optional[MediaMessageContent] = None
-    image: Optional[MediaMessageContent] = None
-    document: Optional[MediaMessageContent] = None
+    type: Literal['text', 'video', 'image', 'document']
+    text: Optional[str] = None
+    # TODO: Add media objects for other header types
 
 class InteractiveFooter(BaseModel):
-    text: str = Field(..., max_length=60)
+    text: str
 
 class InteractiveMessagePayload(BaseModel):
-    type: Literal["button", "list"] # "product", "product_list" are other options
-    body: InteractiveBody
+    type: Literal['button', 'list'] #, 'product', 'product_list']
     action: InteractiveAction
+    body: InteractiveBody
     header: Optional[InteractiveHeader] = None
     footer: Optional[InteractiveFooter] = None
 
-# Schemas for Template Messages
-class TemplateParameterMediaObject(BaseModel):
-    link: str
-
-class TemplateParameterCurrency(BaseModel):
-    fallback_value: str
-    code: str
-    amount_1000: int
-
-class TemplateParameterDateTime(BaseModel):
-    fallback_value: str
-
+# Template Message Schemas
 class TemplateParameter(BaseModel):
-    type: Literal['text', 'currency', 'date_time', 'image', 'video', 'document', 'payload']
+    type: str # 'text', 'currency', 'date_time', 'image', 'document', 'video', 'payload'
     text: Optional[str] = None
-    currency: Optional[TemplateParameterCurrency] = None
-    date_time: Optional[TemplateParameterDateTime] = None
-    image: Optional[TemplateParameterMediaObject] = None
-    video: Optional[TemplateParameterMediaObject] = None
-    document: Optional[TemplateParameterMediaObject] = None
     payload: Optional[str] = None
+    # TODO: Add other parameter types like currency, date_time, image, etc.
 
 class TemplateComponent(BaseModel):
     type: Literal['header', 'body', 'button']
-    parameters: Optional[List[TemplateParameter]] = None
-    sub_type: Optional[Literal['quick_reply', 'url']] = None
-    index: Optional[int] = None
+    sub_type: Optional[str] = None # e.g., 'quick_reply', 'url'
+    parameters: List[TemplateParameter]
 
 class TemplateLanguage(BaseModel):
     code: str
@@ -101,28 +63,7 @@ class TemplateMessagePayload(BaseModel):
     language: TemplateLanguage
     components: Optional[List[TemplateComponent]] = None
 
-# Schemas for Contact Messages
-class ContactName(BaseModel):
-    formatted_name: str
-    first_name: Optional[str] = None
-    last_name: Optional[str] = None
-    middle_name: Optional[str] = None
-    prefix: Optional[str] = None
-    suffix: Optional[str] = None
-
-class ContactPhone(BaseModel):
-    phone: Optional[str] = None
-    type: Optional[str] = None
-    wa_id: Optional[str] = None
-
-class ContactEmail(BaseModel):
-    email: Optional[str] = None
-    type: Optional[str] = None
-
-class ContactURL(BaseModel):
-    url: Optional[str] = None
-    type: Optional[str] = None
-
+# Other Message Types
 class ContactAddress(BaseModel):
     street: Optional[str] = None
     city: Optional[str] = None
@@ -130,32 +71,55 @@ class ContactAddress(BaseModel):
     zip: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
-    type: Optional[str] = None
+    type: Optional[Literal['HOME', 'WORK']] = None
+
+class ContactEmail(BaseModel):
+    email: Optional[str] = None
+    type: Optional[Literal['HOME', 'WORK']] = None
+
+class ContactName(BaseModel):
+    formatted_name: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    suffix: Optional[str] = None
+    prefix: Optional[str] = None
 
 class ContactOrg(BaseModel):
     company: Optional[str] = None
     department: Optional[str] = None
     title: Optional[str] = None
 
-class ContactObject(BaseModel):
-    name: ContactName
-    birthday: Optional[str] = None
-    phones: Optional[List[ContactPhone]] = None
-    emails: Optional[List[ContactEmail]] = None
-    urls: Optional[List[ContactURL]] = None
+class ContactPhone(BaseModel):
+    phone: Optional[str] = None
+    type: Optional[Literal['CELL', 'MAIN', 'IPHONE', 'HOME', 'WORK']] = None
+    wa_id: Optional[str] = None
+
+class ContactUrl(BaseModel):
+    url: Optional[str] = None
+    type: Optional[Literal['HOME', 'WORK']] = None
+
+class ContactPayload(BaseModel):
     addresses: Optional[List[ContactAddress]] = None
+    birthday: Optional[str] = None # YYYY-MM-DD
+    emails: Optional[List[ContactEmail]] = None
+    name: ContactName
     org: Optional[ContactOrg] = None
+    phones: Optional[List[ContactPhone]] = None
+    urls: Optional[List[ContactUrl]] = None
+
+class LocationPayload(BaseModel):
+    latitude: float
+    longitude: float
+    name: Optional[str] = None
+    address: Optional[str] = None
 
 
-# --- Step-specific Config Schemas ---
+# --- Main Step Config Schemas ---
 
 class StepConfigSendMessage(BaseModel):
-    """
-    Configuration for the content of a 'send_message' step.
-    This model represents the value of the `message_config` key in the step's config.
-    """
     message_type: Literal['text', 'image', 'document', 'audio', 'video', 'sticker', 'interactive', 'template', 'contacts', 'location']
-    text: Optional[TextMessageContent] = None
+    text: Optional[TextContent] = None
     image: Optional[MediaMessageContent] = None
     document: Optional[MediaMessageContent] = None
     audio: Optional[MediaMessageContent] = None
@@ -163,14 +127,18 @@ class StepConfigSendMessage(BaseModel):
     sticker: Optional[MediaMessageContent] = None
     interactive: Optional[InteractiveMessagePayload] = None
     template: Optional[TemplateMessagePayload] = None
-    contacts: Optional[List[ContactObject]] = None
+    contacts: Optional[List[ContactPayload]] = None
     location: Optional[LocationPayload] = None
 
 class FallbackConfig(BaseModel):
-    action: Literal['re_prompt', 'switch_flow', 'end_flow'] = 're_prompt'
-    max_retries: int = 2
+    """
+    Configuration for what happens when a user's reply to a question is invalid.
+    """
+    action: Literal['re_prompt'] = 're_prompt'
+    max_retries: int = Field(2, ge=0, description="Number of times to re-prompt before giving up.")
     re_prompt_message_text: Optional[str] = None
-    target_flow_name: Optional[str] = Field(None, description="The name of the flow to switch to on fallback.")
+    action_after_retries: Optional[Literal['human_handover', 'end_flow', 'switch_flow']] = Field(None, description="Action to take after all retries are exhausted.")
+    config_after_retries: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Configuration for the action_after_retries (e.g., message for handover).")
 
 class ReplyConfig(BaseModel):
     save_to_variable: str
@@ -178,22 +146,29 @@ class ReplyConfig(BaseModel):
     validation_regex: Optional[str] = None
 
 class StepConfigQuestion(BaseModel):
-    message_config: Dict[str, Any] # This will be validated as StepConfigSendMessage in services
+    message_config: Dict[str, Any]
     reply_config: ReplyConfig
     fallback_config: Optional[FallbackConfig] = None
 
 class ActionItem(BaseModel):
     action_type: str
+    # Used by 'set_context_variable', 'query_model'
     variable_name: Optional[str] = None
+    # Used by 'set_context_variable', 'update_contact_field'
     value_template: Optional[Any] = None
+    # Used by 'update_contact_field'
     field_path: Optional[str] = None
+    # Used by 'update_customer_profile'
     fields_to_update: Optional[Dict[str, Any]] = None
+    # Used by 'send_admin_notification'
     message_template: Optional[str] = None
+    # Used by 'query_model'
     app_label: Optional[str] = None
     model_name: Optional[str] = None
     filters_template: Optional[Dict[str, Any]] = None
     order_by: Optional[List[str]] = None
     limit: Optional[int] = None
+    # Used by custom actions
     params_template: Optional[Dict[str, Any]] = None
 
 class StepConfigAction(BaseModel):
@@ -204,7 +179,7 @@ class StepConfigHumanHandover(BaseModel):
     notification_details: Optional[str] = None
 
 class StepConfigEndFlow(BaseModel):
-    message_config: Optional[Dict[str, Any]] = None
+    message_config: Optional[Dict[str, Any]] = None # Can be validated against StepConfigSendMessage
 
 class StepConfigSwitchFlow(BaseModel):
     target_flow_name: str
