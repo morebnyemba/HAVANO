@@ -20,10 +20,19 @@ class InteractiveButton(BaseModel):
     type: Literal['reply'] = 'reply'
     reply: Dict[str, str] # e.g., {"id": "unique-id", "title": "Click me"}
 
+class InteractiveRow(BaseModel):
+    id: str
+    title: str
+    description: Optional[str] = None
+
+class InteractiveSection(BaseModel):
+    title: Optional[str] = None
+    rows: Union[List[InteractiveRow], str] # Allow string for template
+
 class InteractiveAction(BaseModel):
     buttons: Optional[List[InteractiveButton]] = None
-    # TODO: Add list message sections here if needed
-    # sections: Optional[List[...]] = None
+    button: Optional[str] = None # For list messages
+    sections: Optional[List[InteractiveSection]] = None
 
 class InteractiveBody(BaseModel):
     text: str

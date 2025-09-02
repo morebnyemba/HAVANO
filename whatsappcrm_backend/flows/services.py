@@ -99,12 +99,20 @@ def truncatewords_filter(value, length=25, end_text='...'):
 
 @pass_context
 def to_interactive_rows_filter(context, value):
-    """Jinja2 filter to convert a list of dicts into a format for interactive message rows."""
-    if not isinstance(value, list): return []
+    """
+    Jinja2 filter to convert a list of dicts into a JSON string representation
+    of interactive message rows. This allows dynamic row generation from context variables.
+    """
+    if not isinstance(value, list):
+        return "[]"
     # This is a simplified example. A real implementation would need to know which
     # keys from the dicts to map to 'id', 'title', and 'description'.
     # For now, we assume the dicts have these keys.
-    return [{"id": item.get("sku", str(item.get("id"))), "title": item.get("name"), "description": f"${item.get('price')}"} for item in value]
+    rows_list = [
+        {"id": str(item.get("sku", item.get("id", ""))), "title": str(item.get("name", "")), "description": f"${item.get('price')}" if item.get('price') is not None else ""}
+        for item in value
+    ]
+    return json.dumps(rows_list)
 
 jinja_env = Environment(
     loader=None, # We're loading templates from strings, not files
