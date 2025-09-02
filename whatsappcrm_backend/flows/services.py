@@ -98,20 +98,34 @@ def truncatewords_filter(value, length=25, end_text='...'):
     return ' '.join(words[:length]) + end_text
 
 @pass_context
-def to_interactive_rows_filter(context, value):
+def to_interactive_rows_filter(context, value, row_template=None):
     """
     Jinja2 filter to convert a list of dicts into a JSON string representation
     of interactive message rows. This allows dynamic row generation from context variables.
+
+    Usage: {{ product_list | to_interactive_rows(row_template={'id': '{{ item.sku }}', 'title': '{{ item.name }}'}) }}
     """
     if not isinstance(value, list):
         return "[]"
-    # This is a simplified example. A real implementation would need to know which
-    # keys from the dicts to map to 'id', 'title', and 'description'.
-    # For now, we assume the dicts have these keys.
-    rows_list = [
-        {"id": str(item.get("sku", item.get("id", ""))), "title": str(item.get("name", "")), "description": f"${item.get('price')}" if item.get('price') is not None else ""}
-        for item in value
-    ]
+
+    # Default template if none is provided, maintaining backward compatibility
+    if not isinstance(row_template, dict):
+        row_template = {
+            "id": "{{ item.sku or item.id }}",
+            "title": "{{ item.name }}",
+            "description": "{% if item.price is not none %}${{ item.price }}{% endif %}"
+        }
+
+    rows_list = []
+    for item in value:
+        # For each item in the list, render the id, title, and description from the template
+        rendered_row = {
+            "id": jinja_env.from_string(row_template.get('id', '')).render(item=item),
+            "title": jinja_env.from_string(row_template.get('title', '')).render(item=item),
+            "description": jinja_env.from_string(row_template.get('description', '')).render(item=item)
+        }
+        rows_list.append(rendered_row)
+
     return json.dumps(rows_list)
 
 jinja_env = Environment(

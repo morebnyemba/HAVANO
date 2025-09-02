@@ -71,7 +71,28 @@ LEAD_GENERATION_FLOW = {
                 "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"company": "{{ company_name }}"}}]
             },
             "transitions": [
-                {"to_step": "ask_email", "priority": 0, "condition_config": {"type": "always_true"}},
+                {"to_step": "ask_role", "priority": 0, "condition_config": {"type": "always_true"}},
+            ]
+        },
+        {
+            "name": "ask_role",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "And what is your role at {{ company_name }}?"}},
+                "reply_config": {"expected_type": "text", "save_to_variable": "user_role"}
+            },
+            "transitions": [
+                {"to_step": "process_role", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "user_role"}}
+            ]
+        },
+        {
+            "name": "process_role",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"role": "{{ user_role }}"}}]
+            },
+            "transitions": [
+                {"to_step": "ask_email", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -100,7 +121,53 @@ LEAD_GENERATION_FLOW = {
                 "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ user_email }}"}}]
             },
             "transitions": [
-                {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}},
+                {"to_step": "ask_phone_confirmation", "priority": 0, "condition_config": {"type": "always_true"}},
+            ]
+        },
+        {
+            "name": "ask_phone_confirmation",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Perfect. Can our team use this number ({{ contact.whatsapp_id }}) to call you for a follow-up?"},
+                        "action": {
+                            "buttons": [
+                                {"type": "reply", "reply": {"id": "confirm_phone_yes", "title": "Yes, that's fine"}},
+                                {"type": "reply", "reply": {"id": "confirm_phone_no", "title": "Use another number"}}
+                            ]
+                        }
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "phone_confirmation"}
+            },
+            "transitions": [
+                {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "confirm_phone_yes"}},
+                {"to_step": "ask_alternative_phone", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "confirm_phone_no"}}
+            ]
+        },
+        {
+            "name": "ask_alternative_phone",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "No problem. What number should we use? Please include the country code (e.g., +14155552671)."}},
+                "reply_config": {"expected_type": "text", "save_to_variable": "alternative_phone", "validation_regex": r"^\+?[1-9]\d{1,14}$"},
+                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "That doesn't look like a valid phone number. Please try again."}
+            },
+            "transitions": [
+                {"to_step": "process_alternative_phone", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "alternative_phone"}}
+            ]
+        },
+        {
+            "name": "process_alternative_phone",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Alternative Phone: {{ alternative_phone }}\\n---\\n{{ customer_profile.notes }}"}}]
+            },
+            "transitions": [
+                {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -202,7 +269,63 @@ LEAD_GENERATION_FLOW = {
                 "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a product from the list."}
             },
             "transitions": [
-                {"to_step": "process_product_choice", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_product_sku"}}
+                {"to_step": "query_chosen_product", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_product_sku"}}
+            ]
+        },
+        {
+            "name": "query_chosen_product",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "query_model",
+                    "app_label": "products_and_services",
+                    "model_name": "SoftwareProduct",
+                    "variable_name": "chosen_product_details",
+                    "filters_template": {"sku": "{{ chosen_product_sku }}"},
+                    "limit": 1
+                }]
+            },
+            "transitions": [
+                {"to_step": "show_product_details", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_product_details.0"}},
+                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "show_product_details",
+            "type": "send_message",
+            "config": {
+                "message_config": {
+                    "message_type": "image",
+                    "image": {
+                        "link": "{{ chosen_product_details.0.image }}",
+                        "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
+                    }
+                }
+            },
+            "transitions": [
+                {"to_step": "ask_next_action", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "ask_next_action",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "What would you like to do next?"},
+                        "action": { "buttons": [
+                            {"type": "reply", "reply": {"id": "schedule_demo", "title": "Schedule a Demo"}},
+                            {"type": "reply", "reply": {"id": "talk_to_sales", "title": "Talk to Sales"}},
+                            {"type": "reply", "reply": {"id": "ask_question", "title": "Ask a Question"}}
+                        ]}
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "next_action_choice"}
+            },
+            "transitions": [
+                {"to_step": "process_product_choice", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "next_action_choice"}}
             ]
         },
         {
@@ -217,7 +340,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_product_choice",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}"}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: {{ next_action_choice | default('Follow-up') }}"}]
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
