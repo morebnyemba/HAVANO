@@ -294,12 +294,10 @@ LEAD_GENERATION_FLOW = {
             "name": "show_product_details",
             "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "image",
-                    "image": {
-                        "link": "{{ chosen_product_details.0.image }}",
-                        "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
-                    }
+                "message_type": "image",
+                "image": {
+                    "link": "{{ chosen_product_details.0.image }}",
+                    "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
                 }
             },
             "transitions": [
