@@ -338,8 +338,19 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                         media_data_to_send['id'] = _resolve_value(media_conf.id, current_step_context, contact)
                         valid_source_found = True
                     elif media_conf.link:
-                        media_data_to_send['link'] = _resolve_value(media_conf.link, current_step_context, contact)
-                        valid_source_found = True
+                        resolved_link = _resolve_value(media_conf.link, current_step_context, contact)
+                        # If the link is relative (e.g., from Django's media files), make it absolute.
+                        if resolved_link and resolved_link.startswith('/'):
+                            domain = getattr(settings, 'BACKEND_DOMAIN_FOR_CSP', None)
+                            if not domain:
+                                logger.error(f"Contact {contact.id}: Cannot form absolute URL for media link '{resolved_link}' because BACKEND_DOMAIN_FOR_CSP is not set in settings.")
+                                resolved_link = None # Prevent sending a broken link
+                            else:
+                                resolved_link = f"https://{domain}{resolved_link}"
+                        
+                        if resolved_link:
+                            media_data_to_send['link'] = resolved_link
+                            valid_source_found = True
                 
                 if not valid_source_found:
                     logger.error(f"Contact {contact.id}: No valid media source (asset_pk, id, or link) for {actual_message_type} in step '{step.name}' (ID: {step.id}).")
@@ -348,7 +359,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                         media_data_to_send['caption'] = _resolve_value(media_conf.caption, current_step_context, contact)
                     if actual_message_type == 'document' and media_conf.filename:
                         media_data_to_send['filename'] = _resolve_value(media_conf.filename, current_step_context, contact)
-                    final_api_data_structure = {actual_message_type: media_data_to_send} 
+                    final_api_data_structure = media_data_to_send
             
             elif actual_message_type == "interactive" and send_message_config.interactive:
                 interactive_payload_validated = send_message_config.interactive # Already validated by StepConfigSendMessage
