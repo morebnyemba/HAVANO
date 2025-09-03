@@ -75,7 +75,13 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
             f"(Status: {halting_message.status}, Status Time: {halting_message.status_timestamp}, "
             f"Created: {halting_message.timestamp}). Retrying."
         )
-        raise self.retry() # Uses the task's default_retry_delay
+        try:
+            raise self.retry() # Uses the task's default_retry_delay
+        except self.MaxRetriesExceededError:
+            logger.error(f"Max retries exceeded for message {outgoing_message_id} while waiting. Marking as failed.")
+            outgoing_msg.status = 'failed'
+            outgoing_msg.error_details = {'error': 'Max retries exceeded while waiting for preceding message.'}
+            # Fall through to the finally block to save the failed status
 
     logger.info(f"Task send_whatsapp_message_task started for Message ID: {outgoing_message_id}, Contact: {outgoing_msg.contact.whatsapp_id}")
 
@@ -116,11 +122,11 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
         try:
             # Retry the task if it's a network issue or a temporary problem
             # Celery will automatically retry based on max_retries and default_retry_delay.
-            # You might want to customize retry conditions.
             raise self.retry(exc=e) # Re-raise to trigger Celery's retry mechanism
         except self.MaxRetriesExceededError:
             logger.error(f"Max retries exceeded for sending Message ID {outgoing_message_id}.")
-            # Message remains marked as 'failed'
+            # Message is already marked as 'failed', so we just let the finally block save it.
+            pass
     finally:
         outgoing_msg.status_timestamp = timezone.now()
         outgoing_msg.save(update_fields=['wamid', 'status', 'error_details', 'status_timestamp'])

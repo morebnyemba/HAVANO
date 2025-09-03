@@ -296,7 +296,7 @@ LEAD_GENERATION_FLOW = {
                         "action": {
                             "buttons": [
                                 {"type": "reply", "reply": {"id": "interest_products", "title": "Software Products"}},
-                                {"type": "reply", "reply": {"id": "interest_services", "title": "Professional Services"}}
+                                {"type": "reply", "reply": {"id": "interest_services", "title": "Services"}}
                             ]
                         }
                     }
