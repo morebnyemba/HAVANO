@@ -3,8 +3,12 @@
 LEAD_GENERATION_FLOW = {
     "name": "lead_generation",
     "friendly_name": "Lead Generation",
-     "description": "A comprehensive flow to qualify new leads by capturing contact details, business needs, and product interest.",
+    "description": "A comprehensive flow to qualify new leads by capturing contact details, business needs, and product interest.",
     "trigger_keywords": ['info', 'quote', 'details', 'pricing', 'demo', 'point of sale', 'pos'],
+    "trigger_config": {
+        "extraction_regex": r"(?i)(point of sale|pos)",
+        "context_variable": "product_category_from_trigger"
+    },
     "is_active": True,
     "steps": [
         {
@@ -27,10 +31,18 @@ LEAD_GENERATION_FLOW = {
             "name": "greet_returning_customer",
             "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "text",
-                    "text": {"body": "Welcome back, {{ customer_profile.first_name }}! Let's find what you're looking for."}
-                }
+                "message_type": "text",
+                "text": {"body": "Welcome back, {{ customer_profile.first_name }}! Let's find what you're looking for."}
+            },
+            "transitions": [
+                {"to_step": "init_returning_customer_notes", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "init_returning_customer_notes",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "Returning customer inquiry."}]
             },
             "transitions": [
                 {"to_step": "check_for_trigger_category", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -193,7 +205,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_alternative_phone",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Alternative Phone: {{ alternative_phone }}\\n---\\n{{ customer_profile.notes }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Alternative Phone: {{ alternative_phone }}\\n---\\n{{ customer_profile.notes or '' }}"}}]
             },
             "transitions": [
                 {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -354,12 +366,10 @@ LEAD_GENERATION_FLOW = {
             "name": "show_product_details",
             "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "image",
-                    "image": {
-                        "link": "{{ chosen_product_details.0.image }}",
-                        "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
-                    }
+                "message_type": "image",
+                "image": {
+                    "link": "{{ chosen_product_details.0.image }}",
+                    "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
                 }
             },
             "transitions": [
@@ -392,10 +402,8 @@ LEAD_GENERATION_FLOW = {
             "name": "handle_no_products_found",
             "type": "send_message",
             "config": {
-                "message_config": {
-                    "message_type": "text", 
-                    "text": {"body": "Apologies, I couldn't find specific product options right now. A team member will get in touch with a customized quote."}
-                }
+                "message_type": "text", 
+                "text": {"body": "Apologies, I couldn't find specific product options right now. A team member will get in touch with a customized quote."}
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
@@ -428,7 +436,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "actions_to_run": [
                     {"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nFollow-up Time: {{ follow_up_time }}"},
-                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}"}},
+                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}\\n---\\n{{ customer_profile.notes or '' }}"}},
                     {"action_type": "send_admin_notification", "message_template": (
                         "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
                         "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name or '' }}\n"

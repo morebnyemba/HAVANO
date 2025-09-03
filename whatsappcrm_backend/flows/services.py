@@ -410,8 +410,8 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if question_config.message_config and not is_re_execution: # Only send initial prompt if not a re-execution for fallback
                 try:
                     temp_msg_pydantic_config = StepConfigSendMessage.model_validate(question_config.message_config)
-                    # Wrap the validated config in 'message_config' to match the expected structure for 'send_message' steps
-                    dummy_config = {'message_config': temp_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)}
+                    # The config for a send_message step is the message config itself (flat structure).
+                    dummy_config = temp_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)
                     dummy_send_step = FlowStep(
                         name=f"{step.name}_prompt", step_type="send_message", config=dummy_config
                     )
@@ -551,8 +551,8 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if end_flow_config.message_config:
                 try:
                     final_msg_pydantic_config = StepConfigSendMessage.model_validate(end_flow_config.message_config)
-                    # Wrap the validated config in 'message_config' to avoid the warning in the recursive call
-                    dummy_config = {'message_config': final_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)}
+                    # The config for a send_message step is the message config itself (flat structure).
+                    dummy_config = final_msg_pydantic_config.model_dump(exclude_none=True, by_alias=True)
                     dummy_end_msg_step = FlowStep(
                         name=f"{step.name}_final_msg", step_type="send_message", config=dummy_config
                     )
