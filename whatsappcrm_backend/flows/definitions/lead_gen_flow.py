@@ -390,7 +390,7 @@ LEAD_GENERATION_FLOW = {
                     "interactive": {
                         "type": "list", "header": {"type": "text", "text": "Available Options"},
                         "body": {"text": "Based on your requirements, here are a few options that may be suitable. Which one are you most interested in?"},
-                        "action": {"button": "View Products", "sections": [{"title": "Point of Sale Systems", "rows": "{{ product_options | to_interactive_rows }}"}]}
+                        "action": {"button": "View Products", "sections": [{"title": "{{ inquiry_topic_from_trigger.replace('_', ' ').title() if inquiry_topic_from_trigger else 'Available Products' }}", "rows": "{{ product_options | to_interactive_rows }}"}]}
                     }
                 },
                 "reply_config": {"save_to_variable": "chosen_product_sku", "expected_type": "interactive_id"},
