@@ -2,7 +2,7 @@ import axios from 'axios';
 import { toast } from 'sonner';
 
 // Use environment variables for the API base URL, with a sensible fallback for local development.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
