@@ -1,60 +1,89 @@
-// src/lib/api.js
+import axios from 'axios';
 import { toast } from 'sonner';
 
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://autochats.havano.online';
-const getAuthToken = () => localStorage.getItem('accessToken');
+// Use environment variables for the API base URL, with a sensible fallback for local development.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
-export async function apiCall(endpoint, { method = 'GET', body = null, isPaginatedFallback = false } = {}) {
-  const token = getAuthToken();
-  const headers = {
-    ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-  };
-  const config = { method, headers, ...(body && !(body instanceof FormData) && { body: JSON.stringify(body) }) };
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
 
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    if (!response.ok) {
-      let errorData = { detail: `Request to ${endpoint} failed: ${response.status} ${response.statusText}` };
-      try {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-          errorData = await response.json();
-          if (response.status === 401 && (errorData.code === "token_not_valid" || errorData.detail?.includes("token not valid") || errorData.detail?.includes("Authentication credentials were not provided"))) {
-            toast.error("Session expired or token invalid. Please log in again.", { id: `auth-error-${Date.now()}` });
-            // A hard redirect is a simple way to handle expired sessions.
-            window.location.href = '/login';
-          }
-        } else {
-          errorData.detail = (await response.text()) || errorData.detail;
-        }
-      } catch (e) { console.error("Failed to parse error response for a failed request:", e); }
+// Interceptor to add the JWT token to every outgoing request.
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken'); // Assumes token is stored in localStorage
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
-      const errorMessage = errorData.detail ||
-                           (typeof errorData === 'object' && errorData !== null && !errorData.detail ?
-                             Object.entries(errorData).map(([k,v])=>`${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(', ') : String(v)}`).join('; ') :
-                             `API Error ${response.status}`);
-      const err = new Error(errorMessage); err.data = errorData; err.isApiError = true; throw err;
+// Interceptor to handle common API errors and provide user feedback.
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.detail || error.response?.data?.error || error.message || 'An unknown error occurred.';
+    
+    // Avoid showing toasts for certain errors, like 401 which should trigger a redirect.
+    if (error.response?.status !== 401) {
+      toast.error(`API Error: ${message}`);
     }
-    if (response.status === 204 || (response.headers.get("content-length") || "0") === "0") {
-      return isPaginatedFallback ? { results: [], count: 0, next: null, previous: null } : null;
+    
+    // Handle token expiry and refresh logic here if needed.
+    if (error.response?.status === 401) {
+        // e.g., redirect to login page
+        // window.location.href = '/login';
     }
-    const data = await response.json();
-    if (isPaginatedFallback) {
-      return { 
-        results: data.results || (Array.isArray(data) ? data : []), 
-        count: data.count === undefined ? (Array.isArray(data) ? data.length : 0) : data.count,
-        next: data.next,
-        previous: data.previous
-      };
-    }
-    return data;
-  } catch (error) {
-    console.error(`API call to ${method} ${API_BASE_URL}${endpoint} failed:`, error);
-    if (!error.isApiError || !error.message.includes("(toasted)")) {
-        toast.error(error.message || 'An API error occurred. Check console.');
-        error.message = (error.message || "") + " (toasted)";
-    }
-    throw error;
+
+    return Promise.reject(error);
   }
-}
+);
+
+// --- API Service Definitions ---
+
+// --- Flows API ---
+export const flowsApi = {
+  list: () => apiClient.get('/crm-api/flows/flows/'),
+  get: (id) => apiClient.get(`/crm-api/flows/flows/${id}/`),
+  create: (data) => apiClient.post('/crm-api/flows/flows/', data),
+  update: (id, data) => apiClient.put(`/crm-api/flows/flows/${id}/`, data),
+  delete: (id) => apiClient.delete(`/crm-api/flows/flows/${id}/`),
+};
+
+// --- Flow Steps API ---
+export const flowStepsApi = {
+  list: (flowId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/`),
+  get: (flowId, stepId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`),
+  create: (flowId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/`, data),
+  update: (flowId, stepId, data) => apiClient.put(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`, data),
+  delete: (flowId, stepId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`),
+};
+
+// --- Flow Transitions API ---
+export const flowTransitionsApi = {
+    list: (flowId, stepId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`),
+    create: (flowId, stepId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`, data),
+    update: (flowId, stepId, transitionId, data) => apiClient.put(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`, data),
+    delete: (flowId, stepId, transitionId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`),
+};
+
+// --- Media Assets API ---
+export const mediaAssetsApi = {
+  list: (params) => apiClient.get('/crm-api/media/assets/', { params }),
+  get: (id) => apiClient.get(`/crm-api/media/assets/${id}/`),
+  create: (formData) => apiClient.post('/crm-api/media/assets/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  update: (id, formData) => apiClient.patch(`/crm-api/media/assets/${id}/`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  delete: (id) => apiClient.delete(`/crm-api/media/assets/${id}/`),
+  manualSync: (id) => apiClient.post(`/crm-api/media/assets/${id}/sync-with-whatsapp/`),
+};
+
+export default apiClient;

@@ -20,6 +20,9 @@ urlpatterns = [
     #   - DRF APIs for MetaAppConfig and WebhookEventLog (e.g., /crm-api/meta/api/configs/)
     path('crm-api/meta/', include('meta_integration.urls', namespace='meta_integration_api')), 
     
+    # API endpoints for 'media_manager' application
+    path('crm-api/media/', include('media_manager.urls', namespace='media_manager_api')),
+    
     path('crm-api/conversations/', include('conversations.urls', namespace='conversations_api')),
 path('crm-api/customer-data/', include('customer_data.urls', namespace='customer_data_api')),
 path('crm-api/stats/', include('stats.urls', namespace='stats_api')),

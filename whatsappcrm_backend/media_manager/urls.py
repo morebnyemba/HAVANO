@@ -1,13 +1,12 @@
-# media_manager/urls.py
+# whatsappcrm_backend/media_manager/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import MediaAssetViewSet # Import your ViewSet
+from . import views
 
-# Create a router and register our viewsets with it.
+app_name = 'media_manager_api'
+
 router = DefaultRouter()
-router.register(r'media-assets', MediaAssetViewSet, basename='mediaasset')
-# The `basename` is used for generating URL names. It's good practice to set it,
-# especially if your ViewSet doesn't have a `queryset` attribute or if it's dynamic.
+router.register(r'assets', views.MediaAssetViewSet, basename='mediaasset')
 
 urlpatterns = [
     path('', include(router.urls)),
