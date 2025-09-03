@@ -2,12 +2,13 @@
 
 LEAD_GENERATION_FLOW = {
     "name": "lead_generation",
-    "friendly_name": "Lead Generation",
+
+    "friendly_name": "Lead Generation (Products & Services)",
     "description": "A comprehensive flow to qualify new leads by capturing contact details, business needs, and product interest.",
-    "trigger_keywords": ['info', 'quote', 'details', 'pricing', 'demo', 'point of sale', 'pos'],
+    "trigger_keywords": ['info', 'quote', 'details', 'pricing', 'demo', 'point of sale', 'pos', 'service', 'consulting'],
     "trigger_config": {
-        "extraction_regex": r"(?i)(point of sale|pos)",
-        "context_variable": "product_category_from_trigger"
+        "extraction_regex": r"(?i)(?:info on|quote for|details on|pricing for|demo of|point of sale|pos|service|consulting)\s*(.*)",
+        "context_variable": "inquiry_topic_from_trigger"
     },
     "is_active": True,
     "steps": [
@@ -45,7 +46,7 @@ LEAD_GENERATION_FLOW = {
                 "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "Returning customer inquiry."}]
             },
             "transitions": [
-                {"to_step": "check_for_trigger_category", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_interest_type", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -280,16 +281,71 @@ LEAD_GENERATION_FLOW = {
                 "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"city": "{{ customer_location }}"}}]
             },
             "transitions": [
-                {"to_step": "check_for_trigger_category", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_interest_type", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "check_for_trigger_category",
+            "name": "ask_interest_type",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Thank you. To best assist you, are you interested in our Software Products or our Professional Services?"},
+                        "action": {
+                            "buttons": [
+                                {"type": "reply", "reply": {"id": "interest_products", "title": "Software Products"}},
+                                {"type": "reply", "reply": {"id": "interest_services", "title": "Professional Services"}}
+                            ]
+                        }
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "interest_type"}
+            },
+            "transitions": [
+                {"to_step": "check_for_trigger_topic", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "interest_products"}},
+                {"to_step": "query_all_services", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "interest_services"}}
+            ]
+        },
+        {
+            "name": "check_for_trigger_topic",
             "type": "action",
             "config": {"actions_to_run": []},
             "transitions": [
-                {"to_step": "query_by_category", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "product_category_from_trigger"}},
+                {"to_step": "attempt_direct_product_query", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "inquiry_topic_from_trigger"}},
                 {"to_step": "query_all_products", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "attempt_direct_product_query",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "query_model",
+                    "app_label": "products_and_services",
+                    "model_name": "SoftwareProduct",
+                    "variable_name": "direct_match_product",
+                    "filters_template": {"is_active": True, "name__icontains": "{{ inquiry_topic_from_trigger }}"},
+                    "limit": 1
+                }]
+            },
+            "transitions": [
+                {"to_step": "set_direct_match_and_show_details", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "direct_match_product.0"}},
+                {"to_step": "query_by_category", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "set_direct_match_and_show_details",
+            "type": "action",
+            "config": {
+                "actions_to_run": [
+                    {"action_type": "set_context_variable", "variable_name": "chosen_product_details", "value_template": "{{ direct_match_product }}"},
+                    {"action_type": "set_context_variable", "variable_name": "chosen_product_sku", "value_template": "{{ direct_match_product.0.sku }}"}
+                ]
+            },
+            "transitions": [
+                {"to_step": "show_product_details", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -303,7 +359,7 @@ LEAD_GENERATION_FLOW = {
                     "variable_name": "product_options",
                     "filters_template": {
                         "is_active": True,
-                        "category__name__icontains": "{{ product_category_from_trigger }}"
+                        "category__name__icontains": "{{ inquiry_topic_from_trigger }}"
                     },
                     "order_by": ["name"],
                     "limit": 3
@@ -398,6 +454,73 @@ LEAD_GENERATION_FLOW = {
                 {"to_step": "inform_more_details", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_more_details"}},
                 {"to_step": "inform_add_ons", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_add_ons"}},
                 {"to_step": "process_product_choice", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "proceed_to_follow_up"}}
+            ]
+        },
+        {
+            "name": "query_all_services",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "query_model", "app_label": "products_and_services", "model_name": "ProfessionalService", "variable_name": "service_options", "filters_template": {"is_active": True}, "order_by": ["name"], "limit": 3}]
+            },
+            "transitions": [
+                {"to_step": "present_service_options", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "service_options.0"}},
+                {"to_step": "handle_no_products_found", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "present_service_options",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "list", "header": {"type": "text", "text": "Available Services"},
+                        "body": {"text": "Here are some of our professional services. Please select one to learn more."},
+                        "action": {"button": "View Services", "sections": [{"title": "Our Services", "rows": "{{ service_options | to_interactive_rows(row_template={'id': '{{ item.id }}', 'title': '{{ item.name }}'}) }}"}]}
+                    }
+                },
+                "reply_config": {"save_to_variable": "chosen_service_id", "expected_type": "interactive_id"},
+                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "Please select a service from the list."}
+            },
+            "transitions": [
+                {"to_step": "query_chosen_service", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_service_id"}}
+            ]
+        },
+        {
+            "name": "query_chosen_service",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{
+                    "action_type": "query_model",
+                    "app_label": "products_and_services",
+                    "model_name": "ProfessionalService",
+                    "variable_name": "chosen_service_details",
+                    "filters_template": {"id": "{{ chosen_service_id }}"},
+                    "limit": 1
+                }]
+            },
+            "transitions": [
+                {"to_step": "show_service_details", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_service_details.0"}},
+                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "show_service_details",
+            "type": "send_message",
+            "config": {
+                "message_type": "text",
+                "text": {"body": "You selected *{{ chosen_service_details.0.name }}*.\n\n{{ chosen_service_details.0.description }}\n\n*Pricing*: Starts from ${{ chosen_service_details.0.price }} {{ chosen_service_details.0.currency }}"}
+            },
+            "transitions": [
+                {"to_step": "process_service_choice", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "process_service_choice",
+            "type": "action",
+            "config": {"actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nService Interest: {{ chosen_service_details.0.name }}\\nNext Step: Follow-up"}]},
+            "transitions": [
+                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
