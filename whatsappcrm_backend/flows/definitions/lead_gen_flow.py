@@ -384,18 +384,62 @@ LEAD_GENERATION_FLOW = {
                     "message_type": "interactive",
                     "interactive": {
                         "type": "button",
-                        "body": {"text": "Now that you have the details for the *{{ chosen_product_details.0.name }}*, what would you like to do next?"},
+                        "body": {"text": "What would you like to do next regarding the *{{ chosen_product_details.0.name }}*?"},
                         "action": { "buttons": [
-                            {"type": "reply", "reply": {"id": "schedule_demo", "title": "Schedule a Demo"}},
-                            {"type": "reply", "reply": {"id": "talk_to_sales", "title": "Talk to Sales"}},
-                            {"type": "reply", "reply": {"id": "ask_question", "title": "Ask a Question"}}
+                            {"type": "reply", "reply": {"id": "view_more_details", "title": "View More Details"}},
+                            {"type": "reply", "reply": {"id": "view_add_ons", "title": "View Add-ons"}},
+                            {"type": "reply", "reply": {"id": "proceed_to_follow_up", "title": "I'm ready, proceed"}}
                         ]}
                     }
                 },
                 "reply_config": {"expected_type": "interactive_id", "save_to_variable": "next_action_choice"}
             },
             "transitions": [
-                {"to_step": "process_product_choice", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "next_action_choice"}}
+                {"to_step": "inform_more_details", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_more_details"}},
+                {"to_step": "inform_add_ons", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_add_ons"}},
+                {"to_step": "process_product_choice", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "proceed_to_follow_up"}}
+            ]
+        },
+        {
+            "name": "inform_more_details",
+            "type": "send_message",
+            "config": {
+                "message_type": "text",
+                "text": {"body": "Understood. We have noted your request for more details. A product specialist will provide them during your follow-up call."}
+            },
+            "transitions": [
+                {"to_step": "process_product_choice_details", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "process_product_choice_details",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: Requested more details"}]
+            },
+            "transitions": [
+                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "inform_add_ons",
+            "type": "send_message",
+            "config": {
+                "message_type": "text",
+                "text": {"body": "Great! We will be happy to discuss available add-ons for the *{{ chosen_product_details.0.name }}* during your follow-up call."}
+            },
+            "transitions": [
+                {"to_step": "process_product_choice_addons", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "process_product_choice_addons",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: Requested add-ons"}]
+            },
+            "transitions": [
+                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
