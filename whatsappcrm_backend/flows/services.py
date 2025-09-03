@@ -288,7 +288,7 @@ def _initiate_paynow_giving_payment(contact: Contact, amount_str: str, payment_t
         "paynow_initiation_error": None
     }
 
-def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, is_re_execution: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
+def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, suppress_prompt: bool = False) -> tuple[List[Dict[str, Any]], Dict[str, Any]]:
     actions_to_perform = []
     raw_step_config = step.config or {} 
     current_step_context = flow_context.copy() 
@@ -407,7 +407,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
     elif step.step_type == 'question':
         try:
             question_config = StepConfigQuestion.model_validate(raw_step_config)
-            if question_config.message_config and not is_re_execution: # Only send initial prompt if not a re-execution for fallback
+            if question_config.message_config and not suppress_prompt: # Only send prompt if not suppressed
                 try:
                     temp_msg_pydantic_config = StepConfigSendMessage.model_validate(question_config.message_config)
                     # The config for a send_message step is the message config itself (flat structure).
@@ -415,7 +415,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                     dummy_send_step = FlowStep(
                         name=f"{step.name}_prompt", step_type="send_message", config=dummy_config
                     )
-                    send_actions, _ = _execute_step_actions(dummy_send_step, contact, current_step_context) # Pass current_step_context
+                    send_actions, _ = _execute_step_actions(dummy_send_step, contact, current_step_context)
                     actions_to_perform.extend(send_actions)
                 except ValidationError as ve:
                     logger.error(f"Contact {contact.id}: Pydantic validation error for 'message_config' within 'question' step '{step.name}' (ID: {step.id}): {ve.errors()}", exc_info=False)
@@ -569,7 +569,7 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
         try:
             handover_config = StepConfigHumanHandover.model_validate(raw_step_config)
             logger.info(f"Executing 'human_handover' step '{step.name}'.")
-            if handover_config.pre_handover_message_text and not is_re_execution: # Avoid sending pre-handover message on re-execution/fallback
+            if handover_config.pre_handover_message_text and not suppress_prompt: # Avoid sending pre-handover message on re-execution/fallback
                 resolved_msg = _resolve_value(handover_config.pre_handover_message_text, current_step_context, contact)
                 actions_to_perform.append({'type': 'send_whatsapp_message', 'recipient_wa_id': contact.whatsapp_id, 'message_type': 'text', 'data': {'body': resolved_msg}})
             
@@ -590,6 +590,26 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
 
     return actions_to_perform, current_step_context
 
+
+def _create_human_handover_actions(contact: Contact, message_text: str) -> List[Dict[str, Any]]:
+    """
+    Creates a standard set of actions for handing a conversation over to a human agent.
+    This centralizes the handover logic to keep the code DRY.
+    """
+    actions = []
+    actions.append({
+        'type': 'send_whatsapp_message',
+        'recipient_wa_id': contact.whatsapp_id,
+        'message_type': 'text',
+        'data': {'body': message_text}
+    })
+    
+    contact.needs_human_intervention = True
+    contact.intervention_requested_at = timezone.now()
+    contact.save(update_fields=['needs_human_intervention', 'intervention_requested_at'])
+    
+    actions.append({'type': '_internal_command_clear_flow_state'})
+    return actions
 
 def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dict, contact_flow_state: ContactFlowState) -> List[Dict[str, Any]]:
     """
@@ -622,8 +642,8 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
             })
 
             # Now, re-execute the original question step to send its prompt again.
-            # The original implementation was buggy and didn't re-send the prompt. This fixes it.
-            step_actions, re_executed_context = _execute_step_actions(current_step, contact, updated_context)
+            # The `suppress_prompt=False` (default) ensures the prompt message is sent.
+            step_actions, re_executed_context = _execute_step_actions(current_step, contact, updated_context, suppress_prompt=False)
             actions_to_perform.extend(step_actions)
             updated_context = re_executed_context
  
@@ -641,27 +661,12 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
                     step_type=action_after_retries,
                     config=fallback_config.config_after_retries or {}
                 )
-                fallback_actions, _ = _execute_step_actions(dummy_fallback_step, contact, updated_context)
-                actions_to_perform.extend(fallback_actions)
-                return actions_to_perform
+                return _execute_step_actions(dummy_fallback_step, contact, updated_context)[0]
             else:
                 # ROBUSTNESS: Default behavior after retries is now human handover, not silent exit.
                 logger.warning(f"Fallback retries exhausted for step '{current_step.name}' and no 'action_after_retries' defined. Defaulting to human handover for contact {contact.id}.")
-                
                 handover_message = "I'm still having trouble understanding. I'm connecting you with a team member who can assist you shortly."
-                actions_to_perform.append({
-                    'type': 'send_whatsapp_message', 
-                    'recipient_wa_id': contact.whatsapp_id, 
-                    'message_type': 'text', 
-                    'data': {'body': handover_message}
-                })
-                
-                contact.needs_human_intervention = True
-                contact.intervention_requested_at = timezone.now()
-                contact.save(update_fields=['needs_human_intervention', 'intervention_requested_at'])
-                
-                actions_to_perform.append({'type': '_internal_command_clear_flow_state'})
-                return actions_to_perform
+                return _create_human_handover_actions(contact, handover_message)
  
     # Scenario 2: It's a non-question step with no valid transition (a "dead end").
     else:
@@ -670,21 +675,8 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
             "No valid transition was found. This indicates a flow design issue. Initiating human handover as a safe default."
         )
         # This path directly triggers handover with a clear message to the user.
-        actions_to_perform.append({
-            'type': 'send_whatsapp_message', 
-            'recipient_wa_id': contact.whatsapp_id, 
-            'message_type': 'text', 
-            'data': {'body': "Apologies, I've encountered a technical issue and can't continue. I'm alerting a team member to assist you."}
-        })
-        
-        contact.needs_human_intervention = True
-        contact.intervention_requested_at = timezone.now()
-        contact.save(update_fields=['needs_human_intervention', 'intervention_requested_at'])
-        
-        actions_to_perform.append({'type': '_internal_command_clear_flow_state'})
-        return actions_to_perform
-
-
+        handover_message = "Apologies, I've encountered a technical issue and can't continue. I'm alerting a team member to assist you."
+        return _create_human_handover_actions(contact, handover_message)
 
 def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj: Message) -> bool:
     """
