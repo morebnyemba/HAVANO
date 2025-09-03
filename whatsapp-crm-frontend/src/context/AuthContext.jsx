@@ -11,6 +11,7 @@ const USER_DATA_KEY = 'user';
 
 const AuthContext = createContext(null);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -26,7 +27,7 @@ export const AuthProvider = ({ children }) => {
     let user = null;
     try {
         user = JSON.parse(localStorage.getItem(USER_DATA_KEY));
-    } catch (e) {
+    } catch {
         console.warn("Could not parse user data from localStorage");
     }
     return {
@@ -94,7 +95,6 @@ export const AuthProvider = ({ children }) => {
     } else {
       setAuthState(prev => ({ ...prev, isLoading: false }));
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Run only once
 
   const loginUser = async (username, password) => {
