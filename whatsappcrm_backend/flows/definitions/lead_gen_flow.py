@@ -32,7 +32,7 @@ LEAD_GENERATION_FLOW = {
             "type": "send_message",
             "config": {
                 "message_type": "text",
-                "text": {"body": "Welcome back, {{ customer_profile.first_name }}! Let's find what you're looking for."}
+                "text": {"body": "Welcome back to Showline Solutions, {{ customer_profile.first_name }}! It's great to see you again. How can we assist you today?"}
             },
             "transitions": [
                 {"to_step": "init_returning_customer_notes", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -55,7 +55,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Welcome to Havano! To get started, could I please have your full name?"}
+                    "text": {"body": "Welcome to Showline Solutions! To get started, could I please have your full name?"}
                 },
                 "reply_config": {
                     "expected_type": "text",
@@ -65,7 +65,7 @@ LEAD_GENERATION_FLOW = {
                 "fallback_config": {
                     "action": "re_prompt",
                     "max_retries": 2,
-                    "re_prompt_message_text": "Please enter a valid full name."
+                    "re_prompt_message_text": "Apologies, that doesn't seem to be a valid name. Could you please provide your full name?"
                 }
             },
             "transitions": [
@@ -94,7 +94,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Thanks, {{ customer_profile.first_name }}! What is the name of your company?"}
+                    "text": {"body": "Thank you, {{ customer_profile.first_name }}. What is the name of your company?"}
                 },
                 "reply_config": {
                     "expected_type": "text",
@@ -119,7 +119,7 @@ LEAD_GENERATION_FLOW = {
             "name": "ask_role",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "And what is your role at {{ company_name }}?"}},
+                "message_config": {"message_type": "text", "text": {"body": "Thank you. And what is your role at {{ company_name }}? (e.g., Owner, Manager)"}},
                 "reply_config": {"expected_type": "text", "save_to_variable": "user_role"}
             },
             "transitions": [
@@ -142,13 +142,13 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Great. And what is your business email address?"},
+                    "text": {"body": "Thank you. What is the best business email address to send your information to?"},
                 },
                 "reply_config": {"expected_type": "email", "save_to_variable": "user_email"},
                 "fallback_config": {
                     "action": "re_prompt",
                     "max_retries": 2,
-                    "re_prompt_message_text": "That doesn't seem to be a valid email address. Please try again (e.g., name@example.com).",
+                    "re_prompt_message_text": "That does not appear to be a valid email address. Please enter a valid email (e.g., name@example.com).",
                 }
             },
             "transitions": [
@@ -173,7 +173,7 @@ LEAD_GENERATION_FLOW = {
                     "message_type": "interactive",
                     "interactive": {
                         "type": "button",
-                        "body": {"text": "Perfect. Can our team use this number ({{ contact.whatsapp_id }}) to call you for a follow-up?"},
+                        "body": {"text": "Thank you for the information. To confirm, can our team use this WhatsApp number ({{ contact.whatsapp_id }}) for any follow-up calls?"},
                         "action": {
                             "buttons": [
                                 {"type": "reply", "reply": {"id": "confirm_phone_yes", "title": "Yes, that's fine"}},
@@ -193,9 +193,9 @@ LEAD_GENERATION_FLOW = {
             "name": "ask_alternative_phone",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "No problem. What number should we use? Please include the country code (e.g., +14155552671)."}},
+                "message_config": {"message_type": "text", "text": {"body": "Understood. What number should we use instead? Please include the country code (e.g., +14155552671)."}},
                 "reply_config": {"expected_type": "text", "save_to_variable": "alternative_phone", "validation_regex": r"^\+?[1-9]\d{1,14}$"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "That doesn't look like a valid phone number. Please try again."}
+                "fallback_config": {"action": "re_prompt", "max_retries": 1, "re_prompt_message_text": "That doesn't look like a valid phone number. Please try again, including the country code (e.g., +14155552671)."}
             },
             "transitions": [
                 {"to_step": "process_alternative_phone", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "alternative_phone"}}
@@ -217,7 +217,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Perfect, thank you. What type of business are you into? (e.g., Retail, Restaurant, Salon)"}
+                    "text": {"body": "Thank you. To help us understand your needs, what type of business do you run? (e.g., Retail, Restaurant, Salon)"}
                 },
                 "reply_config": {
                     "expected_type": "text",
@@ -244,7 +244,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "message_config": {
                     "message_type": "text",
-                    "text": {"body": "Got it. What prompted you to look for a new system?"}
+                    "text": {"body": "Understood. To help us find the best solution for you, what prompted you to look for a new system?"}
                 },
                 "reply_config": {"save_to_variable": "reason_for_new_system", "expected_type": "text"}
             },
@@ -266,7 +266,7 @@ LEAD_GENERATION_FLOW = {
             "name": "ask_location",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "Understood. Where are you located?"}},
+                "message_config": {"message_type": "text", "text": {"body": "Thank you. Where is your business located? This helps us check for any region-specific offers."}},
                 "reply_config": {"save_to_variable": "customer_location", "expected_type": "text"}
             },
             "transitions": [
@@ -333,7 +333,7 @@ LEAD_GENERATION_FLOW = {
                     "message_type": "interactive",
                     "interactive": {
                         "type": "list", "header": {"type": "text", "text": "Available Options"},
-                        "body": {"text": "Here are some options available. Which one did you like most?"},
+                        "body": {"text": "Based on your requirements, here are a few options that may be suitable. Which one are you most interested in?"},
                         "action": {"button": "View Products", "sections": [{"title": "Point of Sale Systems", "rows": "{{ product_options | to_interactive_rows }}"}]}
                     }
                 },
@@ -369,7 +369,7 @@ LEAD_GENERATION_FLOW = {
                 "message_type": "image",
                 "image": {
                     "link": "{{ chosen_product_details.0.image }}",
-                    "caption": "Great choice! Here are the details for the *{{ chosen_product_details.0.name }}*:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
+                    "caption": "You selected the *{{ chosen_product_details.0.name }}*. Here are the details:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
                 }
             },
             "transitions": [
@@ -384,7 +384,7 @@ LEAD_GENERATION_FLOW = {
                     "message_type": "interactive",
                     "interactive": {
                         "type": "button",
-                        "body": {"text": "What would you like to do next?"},
+                        "body": {"text": "Now that you have the details for the *{{ chosen_product_details.0.name }}*, what would you like to do next?"},
                         "action": { "buttons": [
                             {"type": "reply", "reply": {"id": "schedule_demo", "title": "Schedule a Demo"}},
                             {"type": "reply", "reply": {"id": "talk_to_sales", "title": "Talk to Sales"}},
@@ -403,7 +403,7 @@ LEAD_GENERATION_FLOW = {
             "type": "send_message",
             "config": {
                 "message_type": "text", 
-                "text": {"body": "Apologies, I couldn't find specific product options right now. A team member will get in touch with a customized quote."}
+                "text": {"body": "My apologies, I could not find a direct match in our system at this time. A product specialist will review your requirements and contact you with a customized quote shortly."}
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
@@ -423,7 +423,7 @@ LEAD_GENERATION_FLOW = {
             "name": "ask_when_to_follow_up",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "Thank you for your selection. When would be a good time for our team to follow up with you for a detailed discussion?"}},
+                "message_config": {"message_type": "text", "text": {"body": "Thank you. To finalize, when would be a good time for our team to contact you for a detailed discussion?"}},
                 "reply_config": {"save_to_variable": "follow_up_time", "expected_type": "text"}
             },
             "transitions": [
@@ -453,7 +453,7 @@ LEAD_GENERATION_FLOW = {
         {
             "name": "end_flow_final",
             "type": "end_flow",
-            "config": {"message_config": {"message_type": "text", "text": {"body": "Perfect! We have all the details. A representative will contact you around {{ follow_up_time }}. Thank you for your interest in Havano!"}}},
+            "config": {"message_config": {"message_type": "text", "text": {"body": "Thank you. We have all the details we need. A representative will contact you around {{ follow_up_time }}. Thank you for your interest in Showline Solutions! We look forward to speaking with you."}}},
             "transitions": []
         }
     ]
