@@ -82,6 +82,12 @@ class CustomerProfile(models.Model):
         null=True, 
         help_text=_("How this customer was acquired, e.g., 'Website Form', 'Cold Call', 'Referral'")
     )
+    lead_score = models.IntegerField(
+        _("Lead Score"),
+        default=0,
+        db_index=True,
+        help_text=_("A score to qualify leads, can be updated by flow actions.")
+    )
     
     # Agent Assignment & Segmentation
     assigned_agent = models.ForeignKey(

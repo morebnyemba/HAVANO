@@ -8,5 +8,6 @@ class FlowsConfig(AppConfig):
     verbose_name = "Conversational Flows Management"
 
     def ready(self):
-        # Import signals if any
-        pass
+        # This ensures that your custom flow actions are discovered and registered
+        # automatically when the Django application starts.
+        import flows.actions

@@ -39,6 +39,14 @@ class Flow(models.Model):
             "(e.g., [\"hello\", \"start session\"]). Case-insensitive 'contains' match."
         )
     )
+    trigger_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_(
+            "Configuration for advanced triggers, e.g., regex for data extraction. "
+            'Example: {"extraction_regex": "\\"(.*?)\\"", "context_variable": "product_interest"}'
+        )
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

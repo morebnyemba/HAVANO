@@ -300,12 +300,12 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
 
     if step.step_type == 'send_message':
         try:
-            # The config for a send_message step is expected to be nested under 'message_config'
-            # for consistency with how 'question' steps are structured. This handles that.
-            message_config_data = raw_step_config.get('message_config')
-            if message_config_data is None:
-                logger.error(f"Contact {contact.id}: 'send_message' step '{step.name}' (ID: {step.id}) has a missing or malformed 'message_config' key in its config. Step cannot be executed. Raw: {raw_step_config}")
-                # Return empty actions as the step is misconfigured.
+            # The config for a 'send_message' step IS the message config.
+            # The previous implementation incorrectly expected it to be nested under a 'message_config' key.
+            # This change aligns the service with the model and serializer validations.
+            message_config_data = raw_step_config
+            if not message_config_data:
+                logger.error(f"Contact {contact.id}: 'send_message' step '{step.name}' (ID: {step.id}) has an empty config. Step cannot be executed.")
                 return actions_to_perform, current_step_context
 
             send_message_config = StepConfigSendMessage.model_validate(message_config_data)
@@ -604,7 +604,7 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
         logger.warning(f"Invalid fallback_config for step {current_step.id}. Using defaults. Errors: {e.errors()}")
         fallback_config = FallbackConfig()
 
-    # Scenario 1: The step was a question, and the user's reply was invalid. Attempt to re-prompt.
+    # Scenario 1: The step was a question, and the user's reply was invalid.
     if current_step.step_type == 'question':
         max_retries = fallback_config.max_retries
         current_fallback_count = updated_context.get('_fallback_count', 0)
@@ -613,58 +613,77 @@ def _handle_fallback(current_step: FlowStep, contact: Contact, flow_context: dic
             logger.info(f"Fallback: Re-prompting question step '{current_step.name}' for contact {contact.id} (Attempt {current_fallback_count + 1}/{max_retries}).")
             updated_context['_fallback_count'] = current_fallback_count + 1
  
-            re_prompt_message_text = fallback_config.re_prompt_message_text
-            if re_prompt_message_text:
-                resolved_re_prompt_text = _resolve_value(re_prompt_message_text, updated_context, contact)
-                actions_to_perform.append({
-                    'type': 'send_whatsapp_message', 'recipient_wa_id': contact.whatsapp_id,
-                    'message_type': 'text', 'data': {'body': resolved_re_prompt_text}
-                })
-            else:  # Re-execute the original question's message_config if no specific re-prompt text
-                step_actions, re_executed_context = _execute_step_actions(current_step, contact, updated_context, is_re_execution=True)
-                actions_to_perform.extend(step_actions)
-                updated_context = re_executed_context
+            # Send a prefix message before re-sending the prompt. Use the configured message, or a generic one.
+            prefix_message_text = fallback_config.re_prompt_message_text or "I'm sorry, that wasn't a valid response. Let's try that again."
+            resolved_prefix_text = _resolve_value(prefix_message_text, updated_context, contact)
+            actions_to_perform.append({
+                'type': 'send_whatsapp_message', 'recipient_wa_id': contact.whatsapp_id,
+                'message_type': 'text', 'data': {'body': resolved_prefix_text}
+            })
+
+            # Now, re-execute the original question step to send its prompt again.
+            # The original implementation was buggy and didn't re-send the prompt. This fixes it.
+            step_actions, re_executed_context = _execute_step_actions(current_step, contact, updated_context)
+            actions_to_perform.extend(step_actions)
+            updated_context = re_executed_context
  
             # Save the updated context (with incremented fallback_count) and keep the user in the step
             contact_flow_state.flow_context_data = updated_context
             contact_flow_state.save(update_fields=['flow_context_data', 'last_updated_at'])
             return actions_to_perform
-        else: # Retries exhausted or action is not re_prompt
+        else: # Retries exhausted or action is not 're_prompt'
             action_after_retries = fallback_config.action_after_retries
             if action_after_retries:
-                logger.info(f"Fallback retries exhausted for step '{current_step.name}'. Executing action_after_retries: '{action_after_retries}'.")
+                logger.info(f"Fallback retries exhausted for step '{current_step.name}'. Executing configured action_after_retries: '{action_after_retries}'.")
                 # Create a dummy step to execute the final fallback action
                 dummy_fallback_step = FlowStep(
                     name=f"{current_step.name}_fallback_action",
                     step_type=action_after_retries,
                     config=fallback_config.config_after_retries or {}
                 )
-                # We pass the current context to the action, so it can use collected data in messages.
                 fallback_actions, _ = _execute_step_actions(dummy_fallback_step, contact, updated_context)
                 actions_to_perform.extend(fallback_actions)
                 return actions_to_perform
             else:
-                # Default behavior if no action_after_retries is defined: end the flow silently.
-                logger.warning(f"Fallback retries exhausted for step '{current_step.name}' but no 'action_after_retries' defined. Ending flow for contact {contact.id}.")
+                # ROBUSTNESS: Default behavior after retries is now human handover, not silent exit.
+                logger.warning(f"Fallback retries exhausted for step '{current_step.name}' and no 'action_after_retries' defined. Defaulting to human handover for contact {contact.id}.")
+                
+                handover_message = "I'm still having trouble understanding. I'm connecting you with a team member who can assist you shortly."
+                actions_to_perform.append({
+                    'type': 'send_whatsapp_message', 
+                    'recipient_wa_id': contact.whatsapp_id, 
+                    'message_type': 'text', 
+                    'data': {'body': handover_message}
+                })
+                
+                contact.needs_human_intervention = True
+                contact.intervention_requested_at = timezone.now()
+                contact.save(update_fields=['needs_human_intervention', 'intervention_requested_at'])
+                
                 actions_to_perform.append({'type': '_internal_command_clear_flow_state'})
                 return actions_to_perform
  
     # Scenario 2: It's a non-question step with no valid transition (a "dead end").
-    if current_step.step_type != 'question':
+    else:
         logger.error(
             f"CRITICAL: Flow for contact {contact.id} reached a dead end at step '{current_step.name}' (type: {current_step.step_type}). "
-            "No valid transition was found. This indicates a flow design issue. Initiating human handover."
+            "No valid transition was found. This indicates a flow design issue. Initiating human handover as a safe default."
         )
-        # This path directly triggers handover.
-        actions_to_perform.append({'type': 'send_whatsapp_message', 'recipient_wa_id': contact.whatsapp_id, 'message_type': 'text', 'data': {'body': "Apologies, I've encountered a technical issue and can't continue. I'm alerting a team member to assist you."}})
+        # This path directly triggers handover with a clear message to the user.
+        actions_to_perform.append({
+            'type': 'send_whatsapp_message', 
+            'recipient_wa_id': contact.whatsapp_id, 
+            'message_type': 'text', 
+            'data': {'body': "Apologies, I've encountered a technical issue and can't continue. I'm alerting a team member to assist you."}
+        })
+        
         contact.needs_human_intervention = True
         contact.intervention_requested_at = timezone.now()
         contact.save(update_fields=['needs_human_intervention', 'intervention_requested_at'])
-        # Also clear the flow state so the user isn't stuck
+        
         actions_to_perform.append({'type': '_internal_command_clear_flow_state'})
         return actions_to_perform
 
-    return actions_to_perform
 
 
 def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj: Message) -> bool:
@@ -691,16 +710,21 @@ def _trigger_new_flow(contact: Contact, message_data: dict, incoming_message_obj
                     if keyword.strip().lower() in message_text_lower and (not hasattr(contact, 'flow_state')):
                         triggered_flow = flow_candidate
                         
-                        # --- NEW: Extract dynamic category from trigger message ---
-                        # Regex to find content in double quotes or asterisks
-                        match = re.search(r'"([^"]+)"|\*([^*]+)\*', message_text_body)
-                        if match:
-                            # group(1) is for quotes, group(2) is for asterisks
-                            extracted_category = match.group(1) or match.group(2)
-                            if extracted_category:
-                                initial_context['product_category_from_trigger'] = extracted_category.strip()
-                                logger.info(f"Extracted product category '{extracted_category.strip()}' from trigger for flow '{flow_candidate.name}'.")
-                        
+                        # --- DYNAMIC DATA EXTRACTION FROM TRIGGER ---
+                        trigger_conf = triggered_flow.trigger_config or {}
+                        extraction_regex = trigger_conf.get("extraction_regex")
+                        context_var_name = trigger_conf.get("context_variable")
+
+                        if extraction_regex and context_var_name:
+                            try:
+                                match = re.search(extraction_regex, message_text_body)
+                                if match and match.groups():
+                                    extracted_data = match.group(1) # Use the first capturing group
+                                    initial_context[context_var_name] = extracted_data.strip()
+                                    logger.info(f"Extracted '{extracted_data.strip()}' into '{context_var_name}' from trigger for flow '{flow_candidate.name}'.")
+                            except re.error as e:
+                                logger.error(f"Invalid extraction_regex for flow '{flow_candidate.name}': {e}")
+
                         logger.info(f"Keyword '{keyword}' triggered flow '{flow_candidate.name}' for contact {contact.whatsapp_id}.")
                         break
             if triggered_flow:
