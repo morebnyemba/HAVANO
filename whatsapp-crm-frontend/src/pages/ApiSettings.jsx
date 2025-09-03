@@ -11,37 +11,7 @@ import { FiEye, FiEyeOff, FiHelpCircle, FiSave, FiPlus, FiLoader, FiAlertCircle,
 import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-
-// Assuming apiCall helper is in a shared service file
-// For this example, let's re-include it. In your app, import it.
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const getAuthToken = () => localStorage.getItem('accessToken');
-
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const token = getAuthToken();
-  const headers = {
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-  };
-  const config = { method, headers, ...(body && !(body instanceof FormData) && { body: JSON.stringify(body) }) };
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    if (!response.ok) {
-      let errorData = { detail: `Request failed: ${response.status}` };
-      try {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) { errorData = await response.json(); }
-        else { errorData.detail = (await response.text()) || errorData.detail; }
-      } catch (e) { /* Use default error */ }
-      const errorMessage = errorData.detail || Object.entries(errorData).map(([k,v])=>`${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join('; ');
-      const err = new Error(errorMessage); err.data = errorData; throw err;
-    }
-    if (response.status === 204 || (response.headers.get("content-length") || "0") === "0") return null;
-    return await response.json();
-  } catch (error) {
-    toast.error(error.message || 'An API error occurred.'); throw error;
-  }
-}
+import { metaApi } from '@/lib/api';
 
 const DEFAULT_API_VERSION = 'v19.0'; // Or your current preferred default like 'v22.0'
 
@@ -71,7 +41,8 @@ export default function ApiSettings() {
   const fetchConfigs = useCallback(async () => {
     setIsLoadingPage(true);
     try {
-      const data = await apiCall('/crm-api/meta/api/configs/');
+      const response = await metaApi.getConfigs();
+      const data = response.data;
       const fetchedConfigs = data.results || data || [];
       setConfigs(fetchedConfigs);
 
@@ -131,10 +102,6 @@ export default function ApiSettings() {
 
   const onSubmit = async (data) => {
     const isNewConfig = !selectedConfigId || selectedConfigId === 'new';
-    const method = isNewConfig ? 'POST' : 'PUT';
-    const url = isNewConfig
-      ? `/crm-api/meta/api/configs/`
-      : `/crm-api/meta/api/configs/${selectedConfigId}/`;
 
     const payload = { ...data, is_active: Boolean(data.is_active) };
 
@@ -151,7 +118,11 @@ export default function ApiSettings() {
 
 
     try {
-      const result = await apiCall(url, method, payload);
+      const response = isNewConfig
+        ? await metaApi.createConfig(payload)
+        : await metaApi.updateConfig(selectedConfigId, payload);
+      const result = response.data;
+
       toast.success(`Configuration "${result.name}" ${isNewConfig ? 'created' : 'updated'} successfully!`);
       
       // If a config was made active, others might have been deactivated by the backend.

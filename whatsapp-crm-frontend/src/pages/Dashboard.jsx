@@ -23,54 +23,7 @@ import BotPerformanceDisplay from '@/components/charts/BotPerfomanceDisplay';
 
 
 // --- API Configuration & Helper ---
-import { API_BASE_URL } from '@/lib/api';
-
-async function apiCall(endpoint, method = 'GET', body = null, isPaginatedFallback = false) {
-  const token = localStorage.getItem('accessToken');
-  const headers = {
-    ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-  };
-  const config = { method, headers, ...(body && !(body instanceof FormData) && { body: JSON.stringify(body) }) };
-
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    if (!response.ok) {
-      let errorData = { detail: `Request to ${endpoint} failed: ${response.status} ${response.statusText}` };
-      try {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) {
-          errorData = await response.json();
-          if (response.status === 401 && (errorData.code === "token_not_valid" || errorData.detail?.includes("token not valid") || errorData.detail?.includes("Authentication credentials were not provided"))) {
-            toast.error("Session expired or token invalid. Please log in again.", { id: `auth-error-${endpoint.replace(/[^a-zA-Z0-9]/g, '-')}-${Date.now()}` });
-            // In a real app, trigger logout/redirect via AuthContext here
-            // Example: auth.logout(); (would eventually call navigate('/login'))
-          }
-        } else {
-          errorData.detail = (await response.text()) || errorData.detail;
-        }
-      } catch (e) { console.error("Failed to parse error response for a failed request:", e); }
-
-      const errorMessage = errorData.detail ||
-                           (typeof errorData === 'object' && errorData !== null && !errorData.detail ?
-                             Object.entries(errorData).map(([k,v])=>`${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(', ') : String(v)}`).join('; ') :
-                             `API Error ${response.status}`);
-      const err = new Error(errorMessage); err.data = errorData; err.isApiError = true; throw err;
-    }
-    if (response.status === 204 || (response.headers.get("content-length") || "0") === "0") {
-      return isPaginatedFallback ? { results: [], count: 0 } : null;
-    }
-    const data = await response.json();
-    return isPaginatedFallback ? { results: data.results || (Array.isArray(data) ? data : []), count: data.count || (Array.isArray(data) ? data.length : 0) } : data;
-  } catch (error) {
-    console.error(`API call to ${method} ${API_BASE_URL}${endpoint} failed:`, error);
-    if (!error.isApiError || !error.message.includes("(toasted)")) {
-        toast.error(error.message || 'An API error occurred. Check console.');
-        error.message = (error.message || "") + " (toasted)";
-    }
-    throw error;
-  }
-}
+import { dashboardApi, metaApi } from '@/lib/api';
 
 // Initial structure for stats cards
 const initialStatCardsDefinition = [
@@ -125,11 +78,11 @@ export default function Dashboard() {
     setIsLoadingData(true); setLoadingError('');
     try {
       const [summaryResult, configsResult] = await Promise.allSettled([
-        apiCall('/crm-api/stats/summary/'),
-        apiCall('/crm-api/meta/api/configs/', 'GET', null, true),
+        dashboardApi.getSummary(),
+        metaApi.getConfigs(),
       ]);
 
-      const summary = (summaryResult.status === "fulfilled" && summaryResult.value) ? summaryResult.value : {};
+      const summary = (summaryResult.status === "fulfilled" && summaryResult.value.data) ? summaryResult.value.data : {};
       const statsFromSummary = summary.stats_cards || {};
       const insightsFromSummary = summary.flow_insights || {};
       const chartsFromSummary = summary.charts_data || {};
@@ -137,10 +90,13 @@ export default function Dashboard() {
 
       let newStats = JSON.parse(JSON.stringify(initialStatCardsDefinition));
       
-      if (configsResult.status === "fulfilled" && configsResult.value) {
-        const cfData = configsResult.value;
-        const configCount = cfData.count !== undefined ? cfData.count : (Array.isArray(cfData.results) ? cfData.results.length : 0);
-        const activeOne = cfData.results?.find(c => c.is_active);
+      if (configsResult.status === "fulfilled" && configsResult.value.data) {
+        const cfData = configsResult.value.data;
+        // Handle both paginated and non-paginated responses
+        const results = cfData.results || (Array.isArray(cfData) ? cfData : []);
+        const configCount = cfData.count !== undefined ? cfData.count : results.length;
+        const activeOne = results.find(c => c.is_active);
+
         const metaConfigStatIdx = newStats.findIndex(s => s.id === "meta_configs_total"); // Matched ID
         if(metaConfigStatIdx !== -1) {
             newStats[metaConfigStatIdx].value = configCount.toString();

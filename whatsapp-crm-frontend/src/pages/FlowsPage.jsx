@@ -38,37 +38,7 @@ import {
   FiMessageCircle
 } from 'react-icons/fi';
 import { toast } from 'sonner';
-
-// --- API Configuration ---
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const getAuthToken = () => localStorage.getItem('accessToken');
-
-// --- API Helper Function (ensure this is consistent with other files) ---
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const token = getAuthToken();
-  const headers = {
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-  };
-  const config = { method, headers, ...(body && !(body instanceof FormData) && { body: JSON.stringify(body) }) };
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    if (!response.ok) {
-      let errorData = { detail: `Request failed: ${response.status}` };
-      try {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) { errorData = await response.json(); }
-        else { errorData.detail = (await response.text()) || errorData.detail; }
-      } catch (e) { /* Use default error */ }
-      const errorMessage = errorData.detail || Object.entries(errorData).map(([k,v])=>`${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join('; ');
-      const err = new Error(errorMessage); err.data = errorData; throw err;
-    }
-    if (response.status === 204 || (response.headers.get("content-length") || "0") === "0") return null;
-    return await response.json();
-  } catch (error) {
-    toast.error(error.message || 'An API error occurred.'); throw error;
-  }
-}
+import { flowsApi } from '@/lib/api';
 
 export default function FlowsPage() {
   const [flows, setFlows] = useState([]);
@@ -80,10 +50,11 @@ export default function FlowsPage() {
     setIsLoading(true);
     setError(null);
     try {
-      const data = await apiCall('/crm-api/flows/flows/'); // Uses your Django URL structure
+      const response = await flowsApi.list();
+      const data = response.data;
       setFlows(data.results || data);
     } catch (err) {
-      setError(err.message || "Could not fetch flows.");
+      setError(err.message || "Could not fetch flows."); // Interceptor will toast
     } finally {
       setIsLoading(false);
     }
@@ -106,11 +77,11 @@ export default function FlowsPage() {
       return;
     }
     try {
-      await apiCall(`/crm-api/flows/flows/${flowId}/`, 'DELETE');
+      await flowsApi.delete(flowId);
       toast.success(`Flow "${flowName}" deleted successfully.`);
       setFlows(prevFlows => prevFlows.filter(flow => flow.id !== flowId));
     } catch (err) {
-      // Error already toasted by apiCall
+      // Error already toasted by apiClient interceptor
     }
   };
 
@@ -118,10 +89,11 @@ export default function FlowsPage() {
     const newStatus = !flow.is_active;
     const actionText = newStatus ? 'activating' : 'deactivating';
     toast.promise(
-      apiCall(`/crm-api/flows/flows/${flow.id}/`, 'PATCH', { is_active: newStatus }),
+      flowsApi.patch(flow.id, { is_active: newStatus }),
       {
         loading: `${actionText.charAt(0).toUpperCase() + actionText.slice(1)} flow "${flow.name}"...`,
-        success: (updatedFlow) => {
+        success: (response) => {
+          const updatedFlow = response.data;
           setFlows(prevFlows => prevFlows.map(f => (f.id === flow.id ? updatedFlow : f)));
           return `Flow "${updatedFlow.name}" ${newStatus ? 'activated' : 'deactivated'}.`;
         },

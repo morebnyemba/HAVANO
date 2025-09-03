@@ -47,39 +47,7 @@ import {
   editingTransitionAtom,
 } from '@/atoms/flowEditorAtoms';
 
-// --- API Configuration & Helper ---
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const getAuthToken = () => localStorage.getItem('accessToken'); // Replace with your auth context/store
-
-async function apiCall(endpoint, method = 'GET', body = null) {
-  const token = getAuthToken();
-  const headers = {
-    ...(token && { 'Authorization': `Bearer ${token}` }),
-    ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-  };
-  const config = { method, headers, ...(body && !(body instanceof FormData) && { body: JSON.stringify(body) }) };
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-    if (!response.ok) {
-      let errorData = { detail: `Request failed: ${response.status} ${response.statusText}` };
-      try {
-        const contentType = response.headers.get("content-type");
-        if (contentType && contentType.indexOf("application/json") !== -1) { errorData = await response.json(); }
-        else { errorData.detail = (await response.text()) || errorData.detail; }
-      } catch (e) { console.error("Failed to parse error response:", e); }
-      const errorMessage = errorData.detail || 
-                           (typeof errorData === 'object' && errorData !== null && !errorData.detail ? 
-                             Object.entries(errorData).map(([k,v])=>`${k.replace(/_/g, " ")}: ${Array.isArray(v) ? v.join(', ') : v}`).join('; ') : 
-                             `API Error ${response.status}`);
-      const err = new Error(errorMessage); err.data = errorData; throw err;
-    }
-    if (response.status === 204 || (response.headers.get("content-length") || "0") === "0") return null;
-    return await response.json();
-  } catch (error) {
-    console.error(`API call to ${method} ${API_BASE_URL}${endpoint} failed:`, error);
-    toast.error(error.message || 'An API error occurred. Check console.'); throw error;
-  }
-}
+import { flowsApi } from '@/lib/api';
 
 // --- Main Component ---
 export default function FlowEditorPage() {
@@ -118,14 +86,16 @@ export default function FlowEditorPage() {
       const loadFullFlowData = async () => {
         try {
           logger.info(`Loading flow data for ID: ${flowIdFromParams}`);
-          const fetchedFlow = await apiCall(`/crm-api/flows/flows/${flowIdFromParams}/`);
+          const flowResponse = await flowsApi.retrieve(flowIdFromParams);
+          const fetchedFlow = flowResponse.data;
           setFlowDetails({
             id: fetchedFlow.id, name: fetchedFlow.name || '', description: fetchedFlow.description || '',
             triggerKeywordsRaw: (fetchedFlow.trigger_keywords || []).join(', '),
             nlpIntent: fetchedFlow.nlp_trigger_intent || '',
             isActive: fetchedFlow.is_active !== undefined ? fetchedFlow.is_active : true,
           });
-          const fetchedSteps = await apiCall(`/crm-api/flows/flows/${flowIdFromParams}/steps/`);
+          const stepsResponse = await flowsApi.listSteps(flowIdFromParams);
+          const fetchedSteps = stepsResponse.data;
           const getDisplayType = (stepType) => STEP_TYPE_CHOICES.find(c => c.value === stepType)?.label || stepType;
           setSteps((fetchedSteps.results || fetchedSteps || []).map(s => ({...s, step_type_display: getDisplayType(s.step_type)})));
           setError(null);
@@ -153,12 +123,14 @@ export default function FlowEditorPage() {
     try {
       let savedFlowData;
       if (isNewFlowCreation) {
-        savedFlowData = await apiCall('/crm-api/flows/flows/', 'POST', payload);
+        const response = await flowsApi.create(payload);
+        savedFlowData = response.data;
         toast.success(`Flow "${savedFlowData.name}" created successfully!`);
         setFlowDetails(prev => ({...prev, id: savedFlowData.id, ...savedFlowData}));
         navigate(`/flows/edit/${savedFlowData.id}`, { replace: true });
       } else {
-        savedFlowData = await apiCall(`/crm-api/flows/flows/${flowDetails.id}/`, 'PUT', payload);
+        const response = await flowsApi.update(flowDetails.id, payload);
+        savedFlowData = response.data;
         toast.success(`Flow "${savedFlowData.name}" details updated!`);
         setFlowDetails(prev => ({...prev, ...savedFlowData}));
       }
@@ -183,7 +155,8 @@ export default function FlowEditorPage() {
       is_entry_point: !steps.some(s => s.is_entry_point),
     };
     try {
-      const createdStep = await apiCall(`/crm-api/flows/flows/${flowDetails.id}/steps/`, 'POST', newStepPayload);
+      const response = await flowsApi.createStep(flowDetails.id, newStepPayload);
+      const createdStep = response.data;
       const getDisplayType = (stepType) => STEP_TYPE_CHOICES.find(c => c.value === stepType)?.label || stepType;
       setSteps(prev => [...prev, {...createdStep, step_type_display: getDisplayType(createdStep.step_type)}]);
       toast.success(`Step "${createdStep.name}" added.`);
@@ -199,7 +172,8 @@ export default function FlowEditorPage() {
     // No need to set isOperatingOnStep here, StepConfigEditor has its own isSavingStep
     let success = false;
     try {
-        const patchedStep = await apiCall(`/crm-api/flows/flows/${flowDetails.id}/steps/${stepId}/`, 'PATCH', updatedStepDataFromModal);
+        const response = await flowsApi.patchStep(flowDetails.id, stepId, updatedStepDataFromModal);
+        const patchedStep = response.data;
         const getDisplayType = (stepType) => STEP_TYPE_CHOICES.find(c => c.value === stepType)?.label || stepType;
         setSteps(prev => prev.map(step => step.id === patchedStep.id ? { ...step, ...patchedStep, step_type_display: getDisplayType(patchedStep.step_type) } : step));
         toast.success(`Step "${patchedStep.name}" updated.`);
@@ -219,7 +193,7 @@ export default function FlowEditorPage() {
     if (!flowDetails.id) return;
     setIsOperatingOnStep(true);
     try {
-      await apiCall(`/crm-api/flows/flows/${flowDetails.id}/steps/${stepId}/`, 'DELETE');
+      await flowsApi.deleteStep(flowDetails.id, stepId);
       setSteps(prev => prev.filter(step => step.id !== stepId));
       toast.success(`Step "${stepName}" deleted.`);
       if (editingStep?.id === stepId) setEditingStep(null);
@@ -232,7 +206,8 @@ export default function FlowEditorPage() {
     if (!flowDetails.id || !step?.id) { toast.error("Flow/Step info missing."); return; }
     setManagingTransitionsForStep(step); setEditingTransition(null); setIsLoadingTransitions(true);
     try {
-      const fetchedTransitions = await apiCall(`/crm-api/flows/flows/${flowDetails.id}/steps/${step.id}/transitions/`);
+      const response = await flowsApi.listTransitions(flowDetails.id, step.id);
+      const fetchedTransitions = response.data;
       setStepTransitions(fetchedTransitions.results || fetchedTransitions || []);
     } catch (err) { setStepTransitions([]); }
     finally { setIsLoadingTransitions(false); }
@@ -245,12 +220,11 @@ export default function FlowEditorPage() {
     try {
       let savedTransition;
       const payload = { ...transitionDataFromModal };
-      if (!isEditingMode) payload.current_step = currentStepId; 
-      const endpoint = isEditingMode
-        ? `/crm-api/flows/flows/${flowDetails.id}/steps/${currentStepId}/transitions/${transitionIdToUpdate}/`
-        : `/crm-api/flows/flows/${flowDetails.id}/steps/${currentStepId}/transitions/`;
-      const method = isEditingMode ? 'PUT' : 'POST';
-      savedTransition = await apiCall(endpoint, method, payload);
+      if (!isEditingMode) payload.current_step = currentStepId;
+      const response = isEditingMode
+        ? await flowsApi.updateTransition(flowDetails.id, currentStepId, transitionIdToUpdate, payload)
+        : await flowsApi.createTransition(flowDetails.id, currentStepId, payload);
+      savedTransition = response.data;
       if (isEditingMode) {
         setStepTransitions(prev => prev.map(t => t.id === savedTransition.id ? savedTransition : t));
         toast.success("Transition updated!");
@@ -274,7 +248,7 @@ export default function FlowEditorPage() {
     if (!window.confirm("Delete this transition?")) return;
     const currentStepId = managingTransitionsForStep.id;
     try {
-      await apiCall(`/crm-api/flows/flows/${flowDetails.id}/steps/${currentStepId}/transitions/${transitionIdToDelete}/`, 'DELETE');
+      await flowsApi.deleteTransition(flowDetails.id, currentStepId, transitionIdToDelete);
       setStepTransitions(prev => prev.filter(t => t.id !== transitionIdToDelete));
       toast.success("Transition deleted.");
       if (editingTransition?.id === transitionIdToDelete) setEditingTransition(null);

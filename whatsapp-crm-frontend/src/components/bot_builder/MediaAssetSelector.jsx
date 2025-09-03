@@ -6,30 +6,7 @@ import {
 } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { FiLoader, FiImage, FiFileText, FiVideo, FiMic,FiPaperclip } from 'react-icons/fi'; // Added more icons
-// Assuming apiCall is imported or defined globally/in context for brevity in this example
-// import { apiCall } from '@/services/api';
-
-// Placeholder apiCall for this component example
-async function apiCall(endpoint, method = 'GET', body = null) {
-  console.warn("MediaAssetSelector: Using placeholder apiCall. Ensure actual API calls are implemented.");
-  if (endpoint.includes('/media/media-assets') && method === 'GET') {
-    return new Promise(resolve => setTimeout(() => {
-        const mediaTypeFilter = new URLSearchParams(endpoint.split('?')[1]).get('media_type');
-        let demoAssets = [
-            { pk: 1, id:1, name: "Welcome Image.jpg", whatsapp_media_id: "wa_img_welcome", media_type: "image", file_url:"https://placehold.co/60x60/a855f7/FFFFFF?text=Img1" },
-            { pk: 2, id:2, name: "Product Info.pdf", whatsapp_media_id: "wa_doc_info", media_type: "document" },
-            { pk: 3, id:3, name: "Tutorial Video.mp4", whatsapp_media_id: "wa_vid_tutorial", media_type: "video" },
-            { pk: 4, id:4, name: "Audio Guide.mp3", whatsapp_media_id: "wa_aud_guide", media_type: "audio" },
-            { pk: 5, id:5, name: "Another Image.png", whatsapp_media_id: "wa_img_another", media_type: "image"},
-        ];
-        if (mediaTypeFilter) {
-            demoAssets = demoAssets.filter(asset => asset.media_type === mediaTypeFilter);
-        }
-        resolve(demoAssets); // Simulating a direct list, not paginated for this example
-    }, 500));
-  }
-  return [];
-}
+import { mediaAssetsApi } from '@/lib/api';
 
 
 const mediaTypeIcons = {
@@ -54,8 +31,8 @@ export default function MediaAssetSelector({ currentAssetPk, mediaTypeFilter, on
     }
     setIsLoading(true);
     try {
-      // Adjust endpoint if your API is paginated or requires different filters
-      const data = await apiCall(`/media/media-assets/?status=synced&media_type=${mediaTypeFilter}`, 'GET');
+      const response = await mediaAssetsApi.list({ status: 'synced', media_type: mediaTypeFilter });
+      const data = response.data;
       setAssets(data.results || data || []); // Handle paginated or direct list
     } catch (error) {
       // Error is toasted by apiCall, but local state can also be set

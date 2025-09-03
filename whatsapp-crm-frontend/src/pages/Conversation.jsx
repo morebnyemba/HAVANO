@@ -14,7 +14,7 @@ import {
   FiList, FiArrowRight
 } from 'react-icons/fi';
 import { formatDistanceToNow, parseISO } from 'date-fns';
-import { apiCall, API_BASE_URL } from '@/lib/api';
+import { contactsApi, API_BASE_URL } from '@/lib/api';
 import { selectedContactAtom } from '@/atoms/conversationAtoms';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useDebounce } from 'use-debounce';
@@ -197,11 +197,9 @@ export default function ConversationsPage() {
   const fetchContacts = useCallback(async (search = '') => {
     setIsLoading(prev => ({ ...prev, contacts: true }));
     try {
-      const data = await apiCall(
-        `/crm-api/conversations/contacts/?search=${encodeURIComponent(search)}`,
-        'GET'
-      );
-      setContacts(data.results || []);
+      const response = await contactsApi.list({ search });
+      const data = response.data;
+      setContacts(data.results || data || []);
     } catch (error) {
       toast.error("Couldn't load contacts");
     } finally {
@@ -213,11 +211,9 @@ export default function ConversationsPage() {
     if (!contactId) return;
     setIsLoading(prev => ({ ...prev, messages: true }));
     try {
-      const data = await apiCall(
-        `/crm-api/conversations/contacts/${contactId}/messages/`,
-        'GET'
-      );
-      setMessages((data.results || []).reverse());
+      const response = await contactsApi.listMessages(contactId);
+      const data = response.data;
+      setMessages((data.results || data || []).reverse());
     } catch (error) {
       toast.error("Couldn't load messages");
     } finally {

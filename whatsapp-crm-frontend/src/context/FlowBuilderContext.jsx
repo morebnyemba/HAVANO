@@ -14,51 +14,7 @@ import {
 } from 'reactflow';
 import { v4 as uuidv4 } from 'uuid';
 import { toast } from 'sonner'; // Assuming you use sonner for toasts
-
-// --- API Configuration ---
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
-const getAuthToken = () => localStorage.getItem('accessToken'); // Replace with your actual auth logic
-
-// --- API Helper Function ---
-async function apiCall(endpoint, method = 'GET', body = null) {
-    const token = getAuthToken();
-    const headers = {
-        ...(token && { 'Authorization': `Bearer ${token}` }),
-        ...(!body || !(body instanceof FormData) && { 'Content-Type': 'application/json' }),
-    };
-    const config = {
-        method,
-        headers,
-        ...(body && { body: (body instanceof FormData) ? body : JSON.stringify(body) }),
-    };
-
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch (e) {
-            errorData = { detail: response.statusText || `Request failed with status ${response.status}` };
-        }
-        console.error("API Error:", response.status, errorData);
-        let errorMessage = errorData.detail || `API request failed: ${response.status}`;
-        if (typeof errorData === 'object' && errorData !== null && !errorData.detail && Object.keys(errorData).length > 0) {
-            errorMessage = Object.entries(errorData).map(([key, value]) =>
-                `${key}: ${Array.isArray(value) ? value.join(', ') : String(value)}`
-            ).join('; ');
-        }
-        const err = new Error(errorMessage);
-        err.response = response;
-        err.data = errorData;
-        throw err;
-    }
-    if (response.status === 204 || response.headers.get("content-length") === "0") {
-        return null;
-    }
-    return await response.json();
-}
-// --- End API Helper ---
+import { flowsApi } from '../lib/api'; // Import the centralized API client
 
 const FlowBuilderContext = createContext(null);
 
@@ -146,10 +102,11 @@ export const FlowBuilderProvider = ({ children }) => {
     const fetchFlowsFromAPI = useCallback(async () => {
         setIsLoadingFlowListLoading(true);
         try {
-            const data = await apiCall('/automation/flows/');
+            const response = await flowsApi.list();
+            const data = response.data;
             setAvailableFlows(data.results || data || []);
         } catch (error) {
-            toast.error(`Error fetching flows: ${error.message}`);
+            console.error(`Error fetching flows: ${error.message}`);
             setAvailableFlows([]);
         } finally {
             setIsLoadingFlowListLoading(false);
@@ -179,7 +136,8 @@ export const FlowBuilderProvider = ({ children }) => {
 
         setIsLoadingFlow(true);
         try {
-            const flowDataFromAPI = await apiCall(`/automation/flows/${selectedFlowId}/`);
+            const response = await flowsApi.retrieve(selectedFlowId);
+            const flowDataFromAPI = response.data;
             setFlowMetadata({
                 id: flowDataFromAPI.id,
                 name: flowDataFromAPI.name || 'Untitled Flow',
@@ -205,7 +163,7 @@ export const FlowBuilderProvider = ({ children }) => {
             }
             toast.success(`Loaded flow: ${flowDataFromAPI.name}`);
         } catch (error) {
-            toast.error(`Error loading flow: ${error.message}`);
+            console.error(`Error loading flow: ${error.message}`);
             setShowFlowSelectorDialog(true); // Re-show selector on load error
         } finally {
             setIsLoadingFlow(false);
@@ -260,11 +218,12 @@ export const FlowBuilderProvider = ({ children }) => {
             _reactflow_edges: currentEdges,
         };
 
-        const method = flowMetadata.id ? 'PUT' : 'POST';
-        const endpoint = flowMetadata.id ? `/automation/flows/${flowMetadata.id}/` : '/automation/flows/';
-
         try {
-            const savedFlow = await apiCall(endpoint, method, payload);
+            const response = await (flowMetadata.id
+                ? flowsApi.update(flowMetadata.id, payload)
+                : flowsApi.create(payload)
+            );
+            const savedFlow = response.data;
             setFlowMetadata(prev => ({
                 ...prev,
                 id: savedFlow.id, name: savedFlow.name, description: savedFlow.description,
@@ -286,7 +245,7 @@ export const FlowBuilderProvider = ({ children }) => {
             }
             toast.success(`Flow "${savedFlow.name}" saved successfully!`);
         } catch (error) {
-            toast.error(`Save failed: ${error.message || 'Unknown error'}`);
+            console.error(`Save failed: ${error.message || 'Unknown error'}`);
         } finally {
             setIsSaving(false);
         }

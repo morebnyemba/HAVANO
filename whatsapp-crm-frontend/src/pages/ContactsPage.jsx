@@ -24,7 +24,7 @@ import {
   FiPhone, FiTag, FiBriefcase, FiMapPin, FiInfo, FiCalendar, FiBarChart2, FiSmartphone, FiGlobe
 } from 'react-icons/fi';
 import { formatDistanceToNow, parseISO, format, isValid as isValidDate } from 'date-fns';
-import { apiCall } from '@/lib/api';
+import { contactsApi, profilesApi } from '@/lib/api';
 
 const ProfileFieldDisplay = ({ label, value, icon, children, isDate = false, isTagList = false }) => {
     let displayValue = value;
@@ -87,11 +87,11 @@ export default function ContactsPage() {
       if (currentSearchTerm) queryParams.append('search', currentSearchTerm);
       if (filterParam === 'needs_intervention') queryParams.append('needs_human_intervention', 'true');
       
-      const endpoint = `/crm-api/conversations/contacts/?${queryParams.toString()}`;
-      const data = await apiCall(endpoint, { isPaginatedFallback: true });
+      const response = await contactsApi.list(Object.fromEntries(queryParams));
+      const data = response.data;
       setContacts(data.results || []);
       setPagination({ count: data.count || 0, next: data.next, previous: data.previous, currentPage: page });
-    } catch (error) { /* toast handled by apiCall */ } 
+    } catch (error) { /* toast handled by apiClient interceptor */ }
     finally { setIsLoadingContacts(false); }
   }, [searchParams]);
 
@@ -103,7 +103,8 @@ export default function ContactsPage() {
     setIsLoadingDetails(true);
     setSelectedContactDetails(null); 
     try {
-      const detailedData = await apiCall(`/crm-api/conversations/contacts/${contact.id}/`);
+      const response = await contactsApi.retrieve(contact.id);
+      const detailedData = response.data;
       setSelectedContactDetails(detailedData);
       reset({ // Pre-fill form for editing
         contact_name: detailedData.name || '',
@@ -131,7 +132,7 @@ export default function ContactsPage() {
         preferences: JSON.stringify(detailedData.customer_profile?.preferences || {}, null, 2),
         custom_attributes: JSON.stringify(detailedData.customer_profile?.custom_attributes || {}, null, 2),
       });
-    } catch (error) { /* toast handled by apiCall */ } 
+    } catch (error) { /* toast handled by apiClient interceptor */ }
     finally { setIsLoadingDetails(false); }
   }, [reset]);
 
@@ -164,8 +165,8 @@ export default function ContactsPage() {
     try {
       // Using Promise.allSettled to ensure both calls are attempted
       const [contactUpdateResult, profileUpdateResult] = await Promise.allSettled([
-        apiCall(`/crm-api/conversations/contacts/${contactId}/`, { method: 'PATCH', body: contactPayload }),
-        apiCall(`/crm-api/customer-data/profiles/${contactId}/`, { method: 'PATCH', body: profilePayload }) // contactId is PK of CustomerProfile
+        contactsApi.patch(contactId, contactPayload),
+        profilesApi.patch(contactId, profilePayload)
       ]);
 
       let anyError = false;
@@ -187,7 +188,7 @@ export default function ContactsPage() {
         setContacts(prevList => prevList.map(c => c.id === contactId ? {...c, name: formData.contact_name, is_blocked: formData.is_blocked, needs_human_intervention: formData.needs_human_intervention } : c));
 
       }
-    } catch (error) { /* Should be caught by individual apiCalls */ }
+    } catch (error) { /* Should be caught by individual calls and handled by interceptor */ }
   };
 
   const handlePageChange = (newPage) => {
