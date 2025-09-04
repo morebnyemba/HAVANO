@@ -173,4 +173,14 @@ export const savedDataApi = {
   list: () => apiClient.get('/crm-api/saved-data/'), // Assuming this endpoint
 };
 
+// --- Analytics API ---
+export const analyticsApi = {
+  getReports: (params) => apiClient.get('/crm-api/analytics/reports/', { params }),
+};
+
+// --- Saved Data API ---
+export const savedDataApi = {
+  list: () => apiClient.get('/crm-api/saved-data/'), // Assuming this endpoint
+};
+
 export default apiClient;
