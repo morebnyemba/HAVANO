@@ -1,5 +1,5 @@
 // pages/SavedData.jsx
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react';
 import {
   Table,
   TableBody,
@@ -7,8 +7,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import { Skeleton } from '@/components/ui/skeleton'
+} from '@/components/ui/table';
+import { Skeleton } from '@/components/ui/skeleton';
+import { savedDataApi } from '@/lib/api'; // Import our new API service
+import { format, parseISO, isValid } from 'date-fns';
 
 const DataSkeleton = () => (
   <div className="space-y-4">
@@ -19,18 +21,25 @@ const DataSkeleton = () => (
 )
 
 export default function SavedData() {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [data, setData] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await savedDataApi.list();
+      setData(response.data.results || response.data || []);
+    } catch (error) {
+      // Error is toasted by the interceptor
+      setData([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setTimeout(() => {
-      setData([
-        { id: 1, client: "Acme Corp", lastMessage: "Hello!", timestamp: new Date() },
-        { id: 2, client: "Tech Inc", lastMessage: "Need support", timestamp: new Date() }
-      ])
-      setLoading(false)
-    }, 1500)
-  }, [])
+    fetchData();
+  }, [fetchData]);
 
   return (
     <div>
@@ -52,7 +61,10 @@ export default function SavedData() {
                 <TableCell>{item.client}</TableCell>
                 <TableCell>{item.lastMessage}</TableCell>
                 <TableCell>
-                  {item.timestamp.toLocaleDateString()}
+                  {item.timestamp && isValid(parseISO(item.timestamp))
+                    ? format(parseISO(item.timestamp), 'PPp')
+                    : 'N/A'
+                  }
                 </TableCell>
               </TableRow>
             ))}
