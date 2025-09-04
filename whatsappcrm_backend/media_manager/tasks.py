@@ -10,6 +10,38 @@ from .models import MediaAsset
 
 logger = logging.getLogger(__name__)
 
+@shared_task(name="media_manager.tasks.trigger_media_asset_sync_task")
+def trigger_media_asset_sync_task(asset_pk: int, force_reupload: bool = False):
+    """
+    Celery task to synchronize a single MediaAsset with WhatsApp servers.
+    This is typically triggered right after an asset is created or updated.
+    """
+    logger.info(f"[Celery Task] Received request to sync MediaAsset {asset_pk}.")
+    try:
+        asset = MediaAsset.objects.get(pk=asset_pk)
+        if asset.sync_with_whatsapp(force_reupload=force_reupload):
+            logger.info(f"[Celery Task] Successfully synced MediaAsset {asset_pk}.")
+            return f"Successfully synced MediaAsset {asset_pk}"
+        else:
+            logger.error(f"[Celery Task] Failed to sync MediaAsset {asset_pk}. Check asset notes for details.")
+            return f"Failed to sync MediaAsset {asset_pk}"
+    except MediaAsset.DoesNotExist:
+        logger.error(f"[Celery Task] MediaAsset with pk={asset_pk} does not exist. Cannot sync.")
+        return f"MediaAsset with pk={asset_pk} not found."
+    except Exception as e:
+        logger.error(f"[Celery Task] An unexpected error occurred while syncing MediaAsset {asset_pk}: {e}", exc_info=True)
+        # Optionally, update the asset status to reflect the error
+        try:
+            asset = MediaAsset.objects.get(pk=asset_pk)
+            asset.status = 'error_resync'
+            asset.notes = f"Celery task failed: {e}"
+            asset.save(update_fields=['status', 'notes'])
+        except MediaAsset.DoesNotExist:
+            pass # Already logged above
+        except Exception as update_e:
+            logger.error(f"Could not update asset status for pk={asset_pk} after task failure: {update_e}")
+        return f"Error syncing MediaAsset {asset_pk}: {e}"
+
 @shared_task(name="media_manager.tasks.check_and_resync_whatsapp_media")
 def check_and_resync_whatsapp_media():
     """
