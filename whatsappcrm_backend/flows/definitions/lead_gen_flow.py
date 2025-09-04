@@ -110,7 +110,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_company",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"company": "{{ company_name }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"company": "{{ company_name }}"}}] 
             },
             "transitions": [
                 {"to_step": "ask_role", "priority": 0, "condition_config": {"type": "always_true"}},
@@ -131,7 +131,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_role",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"role": "{{ user_role }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"role": "{{ user_role }}"}}] 
             },
             "transitions": [
                 {"to_step": "ask_email", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -160,7 +160,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_email",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ user_email }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ user_email }}"}}] 
             },
             "transitions": [
                 {"to_step": "ask_phone_confirmation", "priority": 0, "condition_config": {"type": "always_true"}},
@@ -206,7 +206,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_alternative_phone",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Alternative Phone: {{ alternative_phone }}\\n---\\n{{ customer_profile.notes or '' }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"notes": "Alternative Phone: {{ alternative_phone }}\n---\n{{ customer_profile.notes or '' }}"}}] 
             },
             "transitions": [
                 {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -278,7 +278,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_location",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"city": "{{ customer_location }}"}}]
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"city": "{{ customer_location }}"}}] 
             },
             "transitions": [
                 {"to_step": "ask_interest_type", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -425,7 +425,7 @@ LEAD_GENERATION_FLOW = {
                 "message_type": "image",
                 "image": {
                     "link": "{{ chosen_product_details.0.image }}",
-                    "caption": "You selected the *{{ chosen_product_details.0.name }}*. Here are the details:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}"
+                    "caption": "You selected the *{{ chosen_product_details.0.name }}*. Here are the details:\n\n{{ chosen_product_details.0.description }}\n\n*Price*: ${{ chosen_product_details.0.price }} {{ chosen_product_details.0.currency }}\n*License*: {{ chosen_product_details.0.license_type }}" 
                 }
             },
             "transitions": [
@@ -518,7 +518,7 @@ LEAD_GENERATION_FLOW = {
         {
             "name": "process_service_choice",
             "type": "action",
-            "config": {"actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nService Interest: {{ chosen_service_details.0.name }}\\nNext Step: Follow-up"}]},
+            "config": {"actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nService Interest: {{ chosen_service_details.0.name }}\nNext Step: Follow-up"}]},
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
@@ -538,7 +538,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_product_choice_details",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: Requested more details"}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: Requested more details"}]
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -559,7 +559,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_product_choice_addons",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: Requested add-ons"}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: Requested add-ons"}]
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -580,7 +580,7 @@ LEAD_GENERATION_FLOW = {
             "name": "process_product_choice",
             "type": "action",
             "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\\nProduct Interest: {{ chosen_product_sku }}\\nNext Step: {{ next_action_choice | default('Follow-up') }}"}]
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: {{ next_action_choice | default('Follow-up') }}"}]
             },
             "transitions": [
                 {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -603,7 +603,7 @@ LEAD_GENERATION_FLOW = {
             "config": {
                 "actions_to_run": [
                     {"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nFollow-up Time: {{ follow_up_time }}"},
-                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}\\n---\\n{{ customer_profile.notes or '' }}"}},
+                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}\n---\n{{ customer_profile.notes or '' }}"}},
                     {"action_type": "send_admin_notification", "message_template": (
                         "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
                         "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name or '' }}\n"
