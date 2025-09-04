@@ -227,6 +227,7 @@ CELERY_TASK_QUEUES = (
 CELERY_TASK_ROUTES = {
     # Example: Route a hypothetical report generation task to the CPU-heavy queue.
     # 'reports.tasks.generate_monthly_report': {'queue': 'cpu_heavy'},
+    'media_manager.tasks.trigger_media_asset_sync_task': {'queue': 'cpu_heavy'},
 }
 
 
