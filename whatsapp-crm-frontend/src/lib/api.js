@@ -1,7 +1,7 @@
+// Filename: src/lib/api.js
 import axios from 'axios';
 import { toast } from 'sonner';
 
-// Use environment variables for the API base URL, with a sensible fallback for local development.
 export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
 
 const apiClient = axios.create({
@@ -11,33 +11,98 @@ const apiClient = axios.create({
   },
 });
 
-// Interceptor to add the JWT token to every outgoing request.
-apiClient.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('accessToken'); // Assumes token is stored in localStorage
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+let isRefreshing = false;
+let failedQueue = [];
 
-// Interceptor to handle common API errors and provide user feedback.
+const processQueue = (error, token = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token);
+    }
+  });
+  failedQueue = [];
+};
+
+const refreshToken = async () => {
+  try {
+    const refreshToken = localStorage.getItem('refreshToken');
+    if (!refreshToken) throw new Error("Session expired. Please log in again.");
+
+    const response = await axios.post(`${API_BASE_URL}/crm-api/auth/token/refresh/`, {
+      refresh: refreshToken,
+    });
+
+    const { access, refresh: newRefreshToken } = response.data;
+    localStorage.setItem('accessToken', access);
+    if (newRefreshToken) {
+      localStorage.setItem('refreshToken', newRefreshToken);
+    }
+    return access;
+  } catch (err) {
+    // On failure, clear tokens and redirect to login
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('user');
+    // A simple reload will do, and the ProtectedRoute component will handle the redirect.
+    window.location.href = '/login';
+    return Promise.reject(err);
+  }
+};
+
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('accessToken');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => Promise.reject(error));
+
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => {
-    const message = error.response?.data?.detail || error.response?.data?.error || error.message || 'An unknown error occurred.';
-    
-    // Avoid showing toasts for certain errors, like 401 which should trigger a redirect.
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      if (isRefreshing) {
+        return new Promise(function(resolve, reject) {
+          failedQueue.push({ resolve, reject });
+        }).then(token => {
+          originalRequest.headers['Authorization'] = 'Bearer ' + token;
+          return apiClient(originalRequest);
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const newAccessToken = await refreshToken();
+        apiClient.defaults.headers.common['Authorization'] = 'Bearer ' + newAccessToken;
+        originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+        processQueue(null, newAccessToken);
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        toast.error(refreshError.message || "Your session has expired. Please log in again.");
+        return Promise.reject(refreshError);
+      } finally {
+        isRefreshing = false;
+      }
+    }
+
+    const message =
+      error.response?.data?.detail ||
+      (typeof error.response?.data === 'object' && error.response?.data !== null
+        ? Object.entries(error.response.data)
+            .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${Array.isArray(v) ? v.join(', ') : v}`)
+            .join('; ')
+        : error.message) ||
+      'An unknown error occurred.';
+
     if (error.response?.status !== 401) {
       toast.error(`API Error: ${message}`);
-    }
-    
-    // Handle token expiry and refresh logic here if needed.
-    if (error.response?.status === 401) {
-        // e.g., redirect to login page
-        // window.location.href = '/login';
     }
 
     return Promise.reject(error);
@@ -46,44 +111,56 @@ apiClient.interceptors.response.use(
 
 // --- API Service Definitions ---
 
-// --- Flows API ---
+// --- Dashboard Stats API ---
+export const dashboardApi = {
+  getSummary: () => apiClient.get('/crm-api/stats/summary/'),
+};
+
+// --- Contacts API ---
+export const contactsApi = {
+  list: (params) => apiClient.get('/crm-api/conversations/contacts/', { params }),
+  retrieve: (id) => apiClient.get(`/crm-api/conversations/contacts/${id}/`),
+  patch: (id, data) => apiClient.patch(`/crm-api/conversations/contacts/${id}/`, data),
+  listMessages: (contactId) => apiClient.get(`/crm-api/conversations/contacts/${contactId}/messages/`),
+};
+
+// --- Customer Profile API ---
+export const profilesApi = {
+  patch: (id, data) => apiClient.patch(`/crm-api/customer-data/profiles/${id}/`, data),
+};
+
+// --- Flows API (Expanded) ---
 export const flowsApi = {
   list: () => apiClient.get('/crm-api/flows/flows/'),
-  get: (id) => apiClient.get(`/crm-api/flows/flows/${id}/`),
+  retrieve: (id) => apiClient.get(`/crm-api/flows/flows/${id}/`),
   create: (data) => apiClient.post('/crm-api/flows/flows/', data),
   update: (id, data) => apiClient.put(`/crm-api/flows/flows/${id}/`, data),
+  patch: (id, data) => apiClient.patch(`/crm-api/flows/flows/${id}/`, data),
   delete: (id) => apiClient.delete(`/crm-api/flows/flows/${id}/`),
+
+  // Steps
+  listSteps: (flowId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/`),
+  createStep: (flowId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/`, data),
+  patchStep: (flowId, stepId, data) => apiClient.patch(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`, data),
+  deleteStep: (flowId, stepId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`),
+
+  // Transitions
+  listTransitions: (flowId, stepId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`),
+  createTransition: (flowId, stepId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`, data),
+  updateTransition: (flowId, stepId, transitionId, data) => apiClient.put(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`, data),
+  deleteTransition: (flowId, stepId, transitionId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`),
 };
 
-// --- Flow Steps API ---
-export const flowStepsApi = {
-  list: (flowId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/`),
-  get: (flowId, stepId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`),
-  create: (flowId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/`, data),
-  update: (flowId, stepId, data) => apiClient.put(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`, data),
-  delete: (flowId, stepId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/`),
-};
-
-// --- Flow Transitions API ---
-export const flowTransitionsApi = {
-    list: (flowId, stepId) => apiClient.get(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`),
-    create: (flowId, stepId, data) => apiClient.post(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/`, data),
-    update: (flowId, stepId, transitionId, data) => apiClient.put(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`, data),
-    delete: (flowId, stepId, transitionId) => apiClient.delete(`/crm-api/flows/flows/${flowId}/steps/${stepId}/transitions/${transitionId}/`),
+// --- Meta API Configs (Expanded) ---
+export const metaApi = {
+  getConfigs: () => apiClient.get('/crm-api/meta/api/configs/'),
+  createConfig: (data) => apiClient.post('/crm-api/meta/api/configs/', data),
+  updateConfig: (id, data) => apiClient.put(`/crm-api/meta/api/configs/${id}/`, data),
 };
 
 // --- Media Assets API ---
 export const mediaAssetsApi = {
-  list: (params) => apiClient.get('/crm-api/media/assets/', { params }),
-  get: (id) => apiClient.get(`/crm-api/media/assets/${id}/`),
-  create: (formData) => apiClient.post('/crm-api/media/assets/', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
-  update: (id, formData) => apiClient.patch(`/crm-api/media/assets/${id}/`, formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
-  delete: (id) => apiClient.delete(`/crm-api/media/assets/${id}/`),
-  manualSync: (id) => apiClient.post(`/crm-api/media/assets/${id}/sync-with-whatsapp/`),
+  list: (params) => apiClient.get('/media/media-assets/', { params }),
 };
 
 export default apiClient;
