@@ -1,4 +1,4 @@
-// Filename: src/lib/api.js
+// Filename: c:\Users\Administrator\Desktop\HAVANO\whatsapp-crm-frontend\src\lib\api.js
 import axios from 'axios';
 import { toast } from 'sonner';
 
@@ -41,11 +41,9 @@ const refreshToken = async () => {
     }
     return access;
   } catch (err) {
-    // On failure, clear tokens and redirect to login
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
-    // A simple reload will do, and the ProtectedRoute component will handle the redirect.
     window.location.href = '/login';
     return Promise.reject(err);
   }
@@ -173,14 +171,42 @@ export const savedDataApi = {
   list: () => apiClient.get('/crm-api/saved-data/'), // Assuming this endpoint
 };
 
-// --- Analytics API ---
-export const analyticsApi = {
-  getReports: (params) => apiClient.get('/crm-api/analytics/reports/', { params }),
-};
+// Backward-compatible apiCall function.
+// It's recommended to migrate away from this and use the specific service APIs above.
+/**
+ * Makes an API call using the configured axios client. This function is provided
+ * for backward compatibility with older parts of the application that used a
+ * fetch-based `apiCall`.
+ * @param {string} endpoint The API endpoint to call.
+ * @param {object|string} [arg2] Either an options object `{ method, body, params }` or the HTTP method string.
+ * @param {object} [arg3] The request body if `arg2` is the method string.
+ * @returns {Promise<any>} The response data.
+ */
+export async function apiCall(endpoint, arg2, arg3) {
+  let method = 'GET';
+  let body = null;
+  let params = null;
 
-// --- Saved Data API ---
-export const savedDataApi = {
-  list: () => apiClient.get('/crm-api/saved-data/'), // Assuming this endpoint
-};
+  if (typeof arg2 === 'object' && arg2 !== null) {
+    // Signature: apiCall(endpoint, { method, body, params })
+    method = arg2.method || 'GET';
+    body = arg2.body || null;
+    params = arg2.params || null;
+  } else if (typeof arg2 === 'string') {
+    // Signature: apiCall(endpoint, method, body)
+    method = arg2;
+    body = arg3 || null;
+  }
+
+  const response = await apiClient({
+    url: endpoint,
+    method,
+    data: body,
+    params,
+  });
+  // Axios wraps the response in a `data` property.
+  // Old apiCall returned the data directly.
+  return response.data;
+}
 
 export default apiClient;
