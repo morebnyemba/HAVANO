@@ -141,7 +141,7 @@ FISCALISATION_FLOW = {
                         "body": {"text": "For urgent processing, the cost is $150. We will need your Company Name, TIN, VAT number, Phone, Address, and Email.\n\nWould you like to start the process now?"},
                         "action": {"buttons": [
                             {"type": "reply", "reply": {"id": "start_today", "title": "Yes, Start Now"}},
-                            {"type": "reply", "reply": {"id": "start_later", "title": "I'll provide details later"}}
+                            {"type": "reply", "reply": {"id": "start_later", "title": "Details Later"}}
                         ]}
                     }
                 },
