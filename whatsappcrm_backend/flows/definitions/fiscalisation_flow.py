@@ -3,7 +3,7 @@
 FISCALISATION_FLOW = {
     "name": "fiscalisation_service",
     "friendly_name": "Fiscalisation Service Inquiry",
-    "description": "A flow to handle inquiries about fiscalisation services, gather requirements, and create a lead.",
+    "description": "A robust flow to handle inquiries about fiscalisation services, gather requirements, and create a lead.",
     "trigger_keywords": ['fiscalisation', 'zimra', 'fiscalised', 'fiscalization'],
     "is_active": True,
     "steps": [
@@ -25,25 +25,19 @@ FISCALISATION_FLOW = {
                         }
                     }
                 },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "is_vat_registered"}
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "is_vat_registered"},
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please select one of the options by tapping a button."
+                }
             },
             "transitions": [
-                {"to_step": "inform_cost_and_time", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "inform_and_ask_reason", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "inform_cost_and_time",
-            "type": "send_message",
-            "config": {
-                "message_type": "text",
-                "text": {"body": "Okay, thank you. We can assist you with the fiscalisation process. It costs $150 and takes approximately 2 days to complete."}
-            },
-            "transitions": [
-                {"to_step": "ask_reason", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "ask_reason",
+            "name": "inform_and_ask_reason",
             "type": "question",
             "config": {
                 "message_config": {
@@ -51,7 +45,7 @@ FISCALISATION_FLOW = {
                     "interactive": {
                         "type": "list",
                         "header": {"type": "text", "text": "Reason for Fiscalising"},
-                        "body": {"text": "What is the main reason you are looking to get fiscalised?"},
+                        "body": {"text": "Okay, thank you. We can assist you with the fiscalisation process. It costs $150 and takes approximately 2 days to complete.\n\nWhat is the main reason you are looking to get fiscalised?"},
                         "action": {
                             "button": "Select Reason",
                             "sections": [{
@@ -65,26 +59,32 @@ FISCALISATION_FLOW = {
                         }
                     }
                 },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "fiscalisation_reason"}
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "fiscalisation_reason"},
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please select a reason from the list."
+                }
             },
             "transitions": [
-                {"to_step": "acknowledge_reason", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "acknowledge_and_ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "acknowledge_reason",
-            "type": "send_message",
-            "config": {"message_type": "text", "text": {"body": "Ok, understood."}},
-            "transitions": [
-                {"to_step": "ask_business_type", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "ask_business_type",
+            "name": "acknowledge_and_ask_business_type",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "What type of business are you into? (e.g., Retail Shop, Hardware, Consulting)"}},
-                "reply_config": {"expected_type": "text", "save_to_variable": "business_type"}
+                "message_config": {"message_type": "text", "text": {"body": "Ok, understood.\n\nWhat type of business are you into? (e.g., Retail Shop, Hardware, Consulting)"}},
+                "reply_config": {
+                    "expected_type": "text", 
+                    "save_to_variable": "business_type",
+                    "validation_regex": r"^.{3,}"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "That seems a bit short. Please provide a brief description of your business type."
+                }
             },
             "transitions": [
                 {"to_step": "ask_urgency", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "business_type"}}
@@ -100,22 +100,34 @@ FISCALISATION_FLOW = {
                         "type": "list",
                         "header": {"type": "text", "text": "Urgency"},
                         "body": {"text": "How urgently do you need the fiscalisation to be done?"},
+                        "footer": {"text": "You can also choose to speak to an agent."},
                         "action": {
                             "button": "Select Urgency",
-                            "sections": [{"title": "Timeline", "rows": [
-                                {"id": "urgent_very", "title": "Very Urgent"},
-                                {"id": "urgent_this_week", "title": "This Week"},
-                                {"id": "urgent_next_week", "title": "Next Week"},
-                                {"id": "urgent_will_update", "title": "I will update you later"}
-                            ]}]
+                            "sections": [
+                                {"title": "Timeline", "rows": [
+                                    {"id": "urgent_very", "title": "Very Urgent"},
+                                    {"id": "urgent_this_week", "title": "This Week"},
+                                    {"id": "urgent_next_week", "title": "Next Week"},
+                                    {"id": "urgent_will_update", "title": "I will update you later"}
+                                ]},
+                                {"title": "Other Options", "rows": [
+                                    {"id": "talk_to_agent", "title": "Talk to an Agent"}
+                                ]}
+                            ]
                         }
                     }
                 },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "urgency_level"}
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "urgency_level"},
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please select an option from the list to continue."
+                }
             },
             "transitions": [
                 {"to_step": "inform_urgent_requirements", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "urgent_very"}},
-                {"to_step": "handle_not_urgent", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "human_handover_request", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "talk_to_agent"}},
+                {"to_step": "handle_not_urgent", "priority": 2, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -133,7 +145,12 @@ FISCALISATION_FLOW = {
                         ]}
                     }
                 },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "start_process_decision"}
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "start_process_decision"},
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please select one of the options to proceed."
+                }
             },
             "transitions": [
                 {"to_step": "ask_company_name", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "start_today"}},
@@ -145,7 +162,16 @@ FISCALISATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "Great. Let's get started. What is your company's full registered name?"}},
-                "reply_config": {"expected_type": "text", "save_to_variable": "fiscalisation_company_name"}
+                "reply_config": {
+                    "expected_type": "text", 
+                    "save_to_variable": "fiscalisation_company_name",
+                    "validation_regex": r"^.{3,}"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "That name seems a bit short. Please enter your full company name."
+                }
             },
             "transitions": [{"to_step": "ask_tin", "priority": 0, "condition_config": {"type": "always_true"}}]
         },
@@ -154,7 +180,16 @@ FISCALISATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "Thank you. What is the company's TIN (Taxpayer Identification Number)?"}},
-                "reply_config": {"expected_type": "text", "save_to_variable": "fiscalisation_tin"}
+                "reply_config": {
+                    "expected_type": "text", 
+                    "save_to_variable": "fiscalisation_tin",
+                    "validation_regex": r"^\d{10,}$"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "A valid TIN usually consists of 10 or more digits. Please check and enter it again."
+                }
             },
             "transitions": [{"to_step": "ask_vat_number", "priority": 0, "condition_config": {"type": "always_true"}}]
         },
@@ -172,7 +207,16 @@ FISCALISATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "What is the best contact phone number for the business?"}},
-                "reply_config": {"expected_type": "text", "save_to_variable": "fiscalisation_phone"}
+                "reply_config": {
+                    "expected_type": "text", 
+                    "save_to_variable": "fiscalisation_phone",
+                    "validation_regex": r"^\+?[1-9]\d{1,14}$"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "That doesn't look like a valid phone number. Please try again, including the country code (e.g., +263...)."
+                }
             },
             "transitions": [{"to_step": "ask_email", "priority": 0, "condition_config": {"type": "always_true"}}]
         },
@@ -181,7 +225,12 @@ FISCALISATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "And the best business email address?"}},
-                "reply_config": {"expected_type": "email", "save_to_variable": "fiscalisation_email"}
+                "reply_config": {"expected_type": "email", "save_to_variable": "fiscalisation_email"},
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "That does not appear to be a valid email address. Please enter a valid email (e.g., name@example.com)."
+                }
             },
             "transitions": [{"to_step": "ask_address", "priority": 0, "condition_config": {"type": "always_true"}}]
         },
@@ -190,9 +239,27 @@ FISCALISATION_FLOW = {
             "type": "question",
             "config": {
                 "message_config": {"message_type": "text", "text": {"body": "Finally, what is the physical address of the business?"}},
-                "reply_config": {"expected_type": "text", "save_to_variable": "fiscalisation_address"}
+                "reply_config": {
+                    "expected_type": "text", 
+                    "save_to_variable": "fiscalisation_address",
+                    "validation_regex": r"^.{10,}"
+                },
+                "fallback_config": {
+                    "action": "re_prompt",
+                    "max_retries": 2,
+                    "re_prompt_message_text": "Please provide a more detailed address."
+                }
             },
             "transitions": [{"to_step": "compile_and_end_urgent", "priority": 0, "condition_config": {"type": "always_true"}}]
+        },
+        {
+            "name": "human_handover_request",
+            "type": "human_handover",
+            "config": {
+                "pre_handover_message_text": "No problem. I'm connecting you with a fiscalisation specialist who can assist you directly. Please give them a moment to join the chat.",
+                "notification_details": "Fiscalisation Flow: Customer requested a human agent."
+            },
+            "transitions": []
         },
         {
             "name": "compile_and_end_urgent",
