@@ -212,11 +212,24 @@ PAYROLL_SOFTWARE_FLOW = {
                     },
                     {
                         "action_type": "update_customer_profile",
-                        "fields_to_update": {"notes": "{{ final_notes }}\n---\n{{ customer_profile.notes or '' }}"}
+                        "fields_to_update": {
+                            "notes": "{{ final_notes }}\n---\n{{ customer_profile.notes or '' }}",
+                            "lead_status": "qualified"
+                        }
+                    },
+                    {
+                        "action_type": "create_opportunity",
+                        "params_template": {
+                            "opportunity_name_template": "Payroll Software Lead",
+                            "amount": 500.00,
+                            "product_sku": "{{ product_sku or 'PAYROLL-SW-01' }}",
+                            "stage": "qualification",
+                            "save_opportunity_id_to": "created_opportunity_id"
+                        }
                     },
                     {
                         "action_type": "send_admin_notification",
-                        "message_template": "New Payroll Lead from {{ contact.name or contact.whatsapp_id }}:\n\n{{ final_notes }}"
+                        "message_template": "New Payroll Lead & Opportunity created for {{ contact.name or contact.whatsapp_id }}:\n\n{{ final_notes }}\nOpportunity ID: {{ created_opportunity_id }}"
                     }
                 ]
             },

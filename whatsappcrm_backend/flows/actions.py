@@ -1,6 +1,7 @@
 # whatsappcrm_backend/flows/actions.py
 
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Dict, Any, List
 from .services import flow_action_registry
 from conversations.models import Contact
@@ -93,6 +94,67 @@ def create_opportunity_from_context(contact: Contact, context: Dict[str, Any], p
 
     return [] # This action does not return any messages to the user
 
+def create_opportunity(contact: Contact, context: Dict[str, Any], params: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Custom flow action to create or update an Opportunity in the CRM.
+    This action gets its configuration directly from the resolved `params_template` in the flow step.
+
+    Expected params from the flow step's config:
+    - opportunity_name or opportunity_name_template (str): The resolved name for the opportunity.
+    - amount (str or float): The estimated value of the opportunity.
+    - product_sku (str): The SKU of the main product for this opportunity.
+    - stage (str, optional): The initial stage for the opportunity (e.g., 'qualification'). Defaults to 'qualification'.
+    - save_opportunity_id_to (str, optional): Context variable to save the new opportunity's ID to.
+    """
+    actions_to_perform = []
+    try:
+        customer_profile = getattr(contact, 'customer_profile', None)
+        if not customer_profile:
+            logger.warning(f"Cannot create opportunity for contact {contact.id}: CustomerProfile does not exist.")
+            return actions_to_perform
+
+        # Get required parameters from the action config (already resolved by the flow service)
+        name = params.get('opportunity_name') or params.get('opportunity_name_template')
+        amount_str = params.get('amount')
+        product_sku = params.get('product_sku')
+        stage = params.get('stage', Opportunity.Stage.QUALIFICATION)
+
+        if not all([name, amount_str, product_sku]):
+            logger.error(f"Action 'create_opportunity' for contact {contact.id} is missing required params (opportunity_name, amount, product_sku). Params received: {params}")
+            return actions_to_perform
+
+        try:
+            amount = Decimal(amount_str)
+        except (InvalidOperation, TypeError):
+            logger.error(f"Action 'create_opportunity' for contact {contact.id} received an invalid amount: '{amount_str}'.")
+            return actions_to_perform
+
+        product = SoftwareProduct.objects.filter(sku=product_sku).first()
+        if not product:
+            logger.error(f"Could not create opportunity for contact {contact.id}: SoftwareProduct with SKU {product_sku} does not exist.")
+            return actions_to_perform
+
+        # Ensure the final name includes customer info for uniqueness if it's a generic name
+        final_opportunity_name = f"{name} - {customer_profile.company or contact.name or contact.whatsapp_id}"
+
+        opportunity, created = Opportunity.objects.get_or_create(
+            customer=customer_profile, name=final_opportunity_name,
+            defaults={'stage': stage, 'amount': amount, 'software_product': product, 'assigned_agent': customer_profile.assigned_agent}
+        )
+
+        if created:
+            logger.info(f"Created new Opportunity (ID: {opportunity.id}) for customer {customer_profile.pk} via 'create_opportunity' action.")
+        else:
+            logger.info(f"Opportunity (ID: {opportunity.id}) with name '{final_opportunity_name}' already existed for customer {customer_profile.pk}. Not creating a new one.")
+
+        if save_to_var := params.get('save_opportunity_id_to'):
+            context[save_to_var] = str(opportunity.id)
+    except Exception as e:
+        logger.error(f"Error in 'create_opportunity' action for contact {contact.id}: {e}", exc_info=True)
+    
+    return actions_to_perform
+
 # --- Register all custom actions here ---
 flow_action_registry.register('update_lead_score', update_lead_score)
 flow_action_registry.register('create_opportunity_from_context', create_opportunity_from_context)
+flow_action_registry.register('create_opportunity', create_opportunity)
