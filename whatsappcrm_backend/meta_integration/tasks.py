@@ -81,7 +81,9 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
             logger.error(f"Max retries exceeded for message {outgoing_message_id} while waiting. Marking as failed.")
             outgoing_msg.status = 'failed'
             outgoing_msg.error_details = {'error': 'Max retries exceeded while waiting for preceding message.'}
-            # Fall through to the finally block to save the failed status
+            outgoing_msg.status_timestamp = timezone.now()
+            outgoing_msg.save(update_fields=['status', 'error_details', 'status_timestamp'])
+            return # Explicitly return to prevent fall-through
 
     logger.info(f"Task send_whatsapp_message_task started for Message ID: {outgoing_message_id}, Contact: {outgoing_msg.contact.whatsapp_id}")
 

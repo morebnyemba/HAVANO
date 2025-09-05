@@ -49,8 +49,8 @@ ERP_ACCOUNTING_FLOW = {
                             "sections": [{
                                 "title": "Core Modules",
                                 "rows": [
-                                    {"id": "feat_gl_reporting", "title": "General Ledger & Reporting"},
-                                    {"id": "feat_ap_ar", "title": "Accounts Payable/Receivable"},
+                                    {"id": "feat_gl_reporting", "title": "GL & Reporting"},
+                                    {"id": "feat_ap_ar", "title": "AP/AR Management"},
                                     {"id": "feat_inventory", "title": "Inventory Management"},
                                     {"id": "feat_payroll", "title": "Payroll Integration"},
                                     {"id": "feat_other", "title": "Something Else"}

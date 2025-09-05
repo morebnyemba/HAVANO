@@ -53,7 +53,7 @@ FISCALISATION_FLOW = {
                                 "rows": [
                                     {"id": "reason_zimra", "title": "ZIMRA Recommended"},
                                     {"id": "reason_customers", "title": "My Customers Require It"},
-                                    {"id": "reason_voluntary", "title": "I Want to Do It Voluntarily"}
+                                    {"id": "reason_voluntary", "title": "Voluntary Fiscalisation"}
                                 ]
                             }]
                         }

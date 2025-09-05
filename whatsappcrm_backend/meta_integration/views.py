@@ -445,10 +445,13 @@ class MetaWebhookAPIView(View):
                             related_incoming_message=incoming_msg_obj # Link to incoming message
                         )
                         # Asynchronously dispatch the message to be sent via the WhatsApp API
-                        send_whatsapp_message_task.apply_async(
-                            args=[outgoing_msg.id, active_config.id],
-                            countdown=dispatch_countdown
-                        )
+                        # Use transaction.on_commit to prevent race conditions where the task
+                        # starts before the message object is committed to the database.
+                        transaction.on_commit(lambda: 
+                            send_whatsapp_message_task.apply_async(
+                                args=[outgoing_msg.id, active_config.id],
+                                countdown=dispatch_countdown
+                            ))
                         sent_message_count += 1
                         # Stagger the next message by a few seconds to allow the previous one to be processed.
                         dispatch_countdown += 4
