@@ -429,8 +429,22 @@ LEAD_GENERATION_FLOW = {
                 }
             },
             "transitions": [
-                {"to_step": "ask_next_action", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "switch_to_product_flow", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "chosen_product_details.0.dedicated_flow_name"}},
+                {"to_step": "ask_next_action", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
+        },
+        {
+            "name": "switch_to_product_flow",
+            "type": "switch_flow",
+            "config": {
+                "target_flow_name": "{{ chosen_product_details.0.dedicated_flow_name }}",
+                "initial_context_template": {
+                    "product_sku": "{{ chosen_product_sku }}",
+                    "product_name": "{{ chosen_product_details.0.name }}",
+                    "source_flow": "lead_generation"
+                }
+            },
+            "transitions": []
         },
         {
             "name": "ask_next_action",

@@ -536,12 +536,18 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
             if switch_config.trigger_keyword_to_pass:
                 initial_context['simulated_trigger_keyword'] = switch_config.trigger_keyword_to_pass
 
+            # Resolve the target flow name as a template to allow for dynamic switching
+            resolved_target_flow_name = _resolve_value(switch_config.target_flow_name, current_step_context, contact)
+            if not resolved_target_flow_name:
+                logger.error(f"Contact {contact.id}: 'switch_flow' step '{step.name}' target_flow_name resolved to an empty value. Cannot switch. Template: '{switch_config.target_flow_name}'")
+                return actions_to_perform, current_step_context
+
             actions_to_perform.append({
                 'type': '_internal_command_switch_flow',
-                'target_flow_name': switch_config.target_flow_name,
+                'target_flow_name': resolved_target_flow_name,
                 'initial_context': initial_context
             })
-            logger.info(f"Contact {contact.id}: Step '{step.name}' queued switch to flow '{switch_config.target_flow_name}'.")
+            logger.info(f"Contact {contact.id}: Step '{step.name}' queued switch to flow '{resolved_target_flow_name}'.")
         except ValidationError as e:
             logger.error(f"Contact {contact.id}: Pydantic validation for 'switch_flow' step '{step.name}' (ID: {step.id}) failed: {e.errors()}", exc_info=False)
 

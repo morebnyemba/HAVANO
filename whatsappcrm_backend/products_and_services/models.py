@@ -59,6 +59,15 @@ class SoftwareProduct(models.Model):
     )
     version = models.CharField(_("Current Version"), max_length=20, blank=True, null=True)
     image = models.ImageField(_("Product Logo/Icon"), upload_to='software_products/', blank=True, null=True)
+    dedicated_flow_name = models.CharField(
+        _("Dedicated Flow Name"),
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text=_(
+            "The name of the flow to trigger for specific follow-up on this product."
+        ),
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
