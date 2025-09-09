@@ -17,7 +17,7 @@ COMPANY_DETAILS_FORM_FLOW = {
                     "interactive": {
                         "type": "flow",
                         "header": {"type": "text", "text": "Company Details"},
-                        "body": {"text": "Please tap the button below to quickly provide or update your company details."},
+                        "body": {"text": "{% if customer_profile.first_name %}Welcome back, {{ customer_profile.first_name }}! {% else %}Welcome! {% endif %}Please tap the button below to quickly provide or update your company details."},
                         "footer": {"text": "Your information is secure."},
                         "action": {
                             "name": "flow",

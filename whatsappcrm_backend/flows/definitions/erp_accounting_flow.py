@@ -17,7 +17,7 @@ ERP_ACCOUNTING_FLOW = {
                     "interactive": {
                         "type": "button",
                         "header": {"type": "text", "text": "ERP/Accounting Inquiry"},
-                        "body": {"text": "Welcome! I can assist with our ERP & Accounting solutions. To start, how many users will need access to the system?"},
+                        "body": {"text": "{% if customer_profile.first_name %}Welcome back, {{ customer_profile.first_name }}!{% else %}Welcome!{% endif %} I can assist with our ERP & Accounting solutions. To start, how many users will need access to the system?"},
                         "action": {
                             "buttons": [
                                 {"type": "reply", "reply": {"id": "users_1-5", "title": "1-5 Users"}},
@@ -114,9 +114,59 @@ ERP_ACCOUNTING_FLOW = {
             },
             "transitions": [
                 {"to_step": "ask_demo_time", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "erp_demo"}},
-                {"to_step": "handle_quote_request", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "erp_quote"}},
+                {"to_step": "check_email_for_erp_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "erp_quote"}},
                 {"to_step": "handle_specialist_request", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "erp_specialist"}}
             ]
+        },
+        {
+            "name": "check_email_for_erp_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "has_email", "value_template": "{{ 'yes' if customer_profile.email else 'no' }}"}]
+            },
+            "transitions": [
+                {"to_step": "confirm_email_for_erp_quote", "priority": 0, "condition_config": {"type": "variable_equals", "variable_name": "has_email", "value": "yes"}},
+                {"to_step": "ask_email_for_erp_quote", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "confirm_email_for_erp_quote",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Great! I can prepare a quote for our ERP & Accounting solution. Shall I send it to the email we have on file: *{{ customer_profile.email }}*?"},
+                        "action": { "buttons": [
+                            {"type": "reply", "reply": {"id": "email_ok", "title": "Yes, send it"}},
+                            {"type": "reply", "reply": {"id": "email_new", "title": "Use another email"}}
+                        ]}
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id"}
+            },
+            "transitions": [
+                {"to_step": "compile_lead_and_create_opportunity", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_ok"}},
+                {"to_step": "ask_email_for_erp_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_new"}}
+            ]
+        },
+        {
+            "name": "ask_email_for_erp_quote",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "No problem. What email address should I send the quote to?"}},
+                "reply_config": {"expected_type": "email", "save_to_variable": "quote_email"}
+            },
+            "transitions": [{"to_step": "update_email_for_erp_quote", "condition_config": {"type": "variable_exists", "variable_name": "quote_email"}}]
+        },
+        {
+            "name": "update_email_for_erp_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ quote_email }}"}}]
+            },
+            "transitions": [{"to_step": "compile_lead_and_create_opportunity", "condition_config": {"type": "always_true"}}]
         },
         {
             "name": "ask_demo_time",
@@ -126,14 +176,6 @@ ERP_ACCOUNTING_FLOW = {
                 "reply_config": {"expected_type": "text", "save_to_variable": "preferred_demo_time", "validation_regex": r"^.{5,}"},
                 "fallback_config": {"action": "re_prompt", "max_retries": 2, "re_prompt_message_text": "Please provide a day and time (e.g., 'Tomorrow afternoon' or 'Friday at 2 PM')."}
             },
-            "transitions": [
-                {"to_step": "compile_lead_and_create_opportunity", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "handle_quote_request",
-            "type": "action",
-            "config": {"actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "Customer requested a detailed quote for ERP Software."}]},
             "transitions": [
                 {"to_step": "compile_lead_and_create_opportunity", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
@@ -164,6 +206,9 @@ ERP_ACCOUNTING_FLOW = {
                             "{% if preferred_demo_time %}"
                             "Preferred Demo Time: {{ preferred_demo_time }}\n"
                             "{% endif %}"
+                            "{% if erp_next_step == 'erp_quote' %}"
+                            "Quote requested to be sent to {{ customer_profile.email }}.\n"
+                            "{% endif %}"
                             "Source Flow: {{ source_flow or 'erp_accounting_software' }}"
                         )
                     },
@@ -180,13 +225,17 @@ ERP_ACCOUNTING_FLOW = {
                             "opportunity_name_template": "ERP Accounting Software Lead",
                             "amount": 2500.00,
                             "product_sku": "ERP-ACCT-01",
-                            "stage": "qualification",
+                            "stage": "{% if erp_next_step == 'erp_quote' %}quoting{% else %}qualification{% endif %}",
                             "save_opportunity_id_to": "created_opportunity_id"
                         }
                     },
                     {
                         "action_type": "send_admin_notification",
-                        "message_template": "New ERP Lead & Opportunity created for {{ contact.name or contact.whatsapp_id }}:\n\n{{ final_notes }}\nOpportunity ID: {{ created_opportunity_id }}"
+                        "message_template": (
+                            "{% if erp_next_step == 'erp_quote' %}ACTION REQUIRED: ERP Quote requested by {{ contact.name or contact.whatsapp_id }}.{% else %}New ERP Lead & Opportunity for {{ contact.name or contact.whatsapp_id }}:{% endif %}\n\n"
+                            "{{ final_notes }}\n"
+                            "Opportunity ID: {{ created_opportunity_id }}"
+                        )
                     }
                 ]
             },
@@ -206,7 +255,7 @@ ERP_ACCOUNTING_FLOW = {
                             "{% if erp_next_step == 'erp_demo' %}"
                             "A specialist will contact you shortly to confirm your demo."
                             "{% elif erp_next_step == 'erp_quote' %}"
-                            "A specialist will prepare a detailed quote and send it to you."
+                            "Thank you! Your quote for our ERP & Accounting solution is being prepared and will be sent to *{{ customer_profile.email }}* shortly."
                             "{% endif %}"
                             " We look forward to speaking with you!"
                         )

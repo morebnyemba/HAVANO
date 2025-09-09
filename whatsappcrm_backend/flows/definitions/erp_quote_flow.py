@@ -18,7 +18,7 @@ ERP_QUOTE_FLOW = {
             "type": "send_message",
             "config": {
                 "message_type": "text",
-                "text": {"body": "Welcome! I can help you get a quote for our HavanoERP solution. Let's start by selecting the modules you need."}
+                "text": {"body": "{% if customer_profile.first_name %}Welcome back, {{ customer_profile.first_name }}!{% else %}Welcome!{% endif %} I can help you get a quote for our HavanoERP solution. Let's start by selecting the modules you need."}
             },
             "transitions": [{"to_step": "initialize_context", "condition_config": {"type": "always_true"}}]
         },
@@ -204,19 +204,77 @@ ERP_QUOTE_FLOW = {
                     "action_type": "create_opportunity",
                     "params_template": {
                         "name": "New HavanoERP Inquiry from {{ contact.name }}",
-                        "stage": "qualification",
+                        "stage": "quoting",
                         "software_product_sku": "HAVANO-ERP",
                         "software_module_skus": "{{ selected_module_skus }}",
-                        "confirmation_text": "Thank you! We've received your inquiry for HavanoERP. A sales representative will prepare a detailed quote and get in touch with you shortly."
+                        "save_opportunity_id_to": "created_opportunity_id"
                     }
+                }, {
+                    "action_type": "send_admin_notification",
+                    "message_template": "ACTION REQUIRED: HavanoERP Quote requested by {{ contact.name or contact.whatsapp_id }}.\n\nSelected Modules: {{ selected_module_skus }}\nOpportunity ID: {{ created_opportunity_id }}\n\nPlease prepare and send PDF quote to contact's email."
                 }]
             },
-            "transitions": [{"to_step": "end_flow", "condition_config": {"type": "always_true"}}]
+            "transitions": [{"to_step": "check_email_for_erp_quote", "condition_config": {"type": "always_true"}}]
         },
         {
-            "name": "end_flow",
+            "name": "check_email_for_erp_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "has_email", "value_template": "{{ 'yes' if customer_profile.email else 'no' }}"}]
+            },
+            "transitions": [
+                {"to_step": "confirm_email_for_erp_quote", "priority": 0, "condition_config": {"type": "variable_equals", "variable_name": "has_email", "value": "yes"}},
+                {"to_step": "ask_email_for_erp_quote", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "confirm_email_for_erp_quote",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Thank you for your selections! I'm ready to generate your quote. Shall I send it to the email we have on file: *{{ customer_profile.email }}*?"},
+                        "action": { "buttons": [
+                            {"type": "reply", "reply": {"id": "email_ok", "title": "Yes, send it"}},
+                            {"type": "reply", "reply": {"id": "email_new", "title": "Use another email"}}
+                        ]}
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id"}
+            },
+            "transitions": [
+                {"to_step": "end_flow_quote_sent", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_ok"}},
+                {"to_step": "ask_email_for_erp_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_new"}}
+            ]
+        },
+        {
+            "name": "ask_email_for_erp_quote",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "No problem. What email address should I send the quote to?"}},
+                "reply_config": {"expected_type": "email", "save_to_variable": "quote_email"}
+            },
+            "transitions": [{"to_step": "update_email_for_erp_quote", "condition_config": {"type": "variable_exists", "variable_name": "quote_email"}}]
+        },
+        {
+            "name": "update_email_for_erp_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ quote_email }}"}}]
+            },
+            "transitions": [{"to_step": "end_flow_quote_sent", "condition_config": {"type": "always_true"}}]
+        },
+        {
+            "name": "end_flow_quote_sent",
             "type": "end_flow",
-            "config": {},
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Thank you! We've received your inquiry for HavanoERP. A sales representative will prepare a detailed quote based on your selections and send it to *{{ customer_profile.email }}* shortly."}
+                }
+            },
             "transitions": []
         }
     ]

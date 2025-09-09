@@ -16,7 +16,7 @@ FISCALISATION_FLOW = {
                     "message_type": "interactive",
                     "interactive": {
                         "type": "button",
-                        "body": {"text": "Welcome! I can help with your fiscalisation inquiry. First, are you VAT registered?"},
+                        "body": {"text": "{% if customer_profile.first_name %}Welcome back, {{ customer_profile.first_name }}!{% else %}Welcome!{% endif %} I can help with your fiscalisation inquiry. First, are you VAT registered?"},
                         "action": {
                             "buttons": [
                                 {"type": "reply", "reply": {"id": "vat_yes", "title": "Yes"}},

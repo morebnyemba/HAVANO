@@ -17,7 +17,7 @@ PAYROLL_SOFTWARE_FLOW = {
                     "interactive": {
                         "type": "button",
                         "header": {"type": "text", "text": "Payroll Software Inquiry"},
-                        "body": {"text": "Welcome! I can help with our Payroll Software. To recommend the right plan, how many employees do you have?"},
+                        "body": {"text": "{% if customer_profile.first_name %}Welcome back, {{ customer_profile.first_name }}!{% else %}Welcome!{% endif %} I can help with our Payroll Software. To recommend the right plan, how many employees do you have?"},
                         "action": {
                             "buttons": [
                                 {"type": "reply", "reply": {"id": "employees_1-10", "title": "1-10 Employees"}},
@@ -134,9 +134,59 @@ PAYROLL_SOFTWARE_FLOW = {
             },
             "transitions": [
                 {"to_step": "ask_demo_time", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "request_demo"}},
-                {"to_step": "handle_quote_request", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "request_quote"}},
+                {"to_step": "check_email_for_payroll_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "request_quote"}},
                 {"to_step": "handle_ask_question", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "ask_question"}}
             ]
+        },
+        {
+            "name": "check_email_for_payroll_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "has_email", "value_template": "{{ 'yes' if customer_profile.email else 'no' }}"}]
+            },
+            "transitions": [
+                {"to_step": "confirm_email_for_payroll_quote", "priority": 0, "condition_config": {"type": "variable_equals", "variable_name": "has_email", "value": "yes"}},
+                {"to_step": "ask_email_for_payroll_quote", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "confirm_email_for_payroll_quote",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Great! I can prepare a quote for the *{{ recommended_plan_name }}*. Shall I send it to the email we have on file: *{{ customer_profile.email }}*?"},
+                        "action": { "buttons": [
+                            {"type": "reply", "reply": {"id": "email_ok", "title": "Yes, send it"}},
+                            {"type": "reply", "reply": {"id": "email_new", "title": "Use another email"}}
+                        ]}
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id"}
+            },
+            "transitions": [
+                {"to_step": "compile_lead_and_end", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_ok"}},
+                {"to_step": "ask_email_for_payroll_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_new"}}
+            ]
+        },
+        {
+            "name": "ask_email_for_payroll_quote",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "No problem. What email address should I send the quote to?"}},
+                "reply_config": {"expected_type": "email", "save_to_variable": "quote_email"}
+            },
+            "transitions": [{"to_step": "update_email_for_payroll_quote", "condition_config": {"type": "variable_exists", "variable_name": "quote_email"}}]
+        },
+        {
+            "name": "update_email_for_payroll_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ quote_email }}"}}]
+            },
+            "transitions": [{"to_step": "compile_lead_and_end", "condition_config": {"type": "always_true"}}]
         },
         {
             "name": "ask_demo_time",
@@ -153,16 +203,6 @@ PAYROLL_SOFTWARE_FLOW = {
                     "max_retries": 2,
                     "re_prompt_message_text": "Please provide a day and time (e.g., 'Tomorrow afternoon' or 'Friday at 2 PM')."
                 }
-            },
-            "transitions": [
-                {"to_step": "compile_lead_and_end", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "handle_quote_request",
-            "type": "action",
-            "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "Customer requested a quote for Payroll Software."}]
             },
             "transitions": [
                 {"to_step": "compile_lead_and_end", "priority": 0, "condition_config": {"type": "always_true"}}
@@ -193,6 +233,9 @@ PAYROLL_SOFTWARE_FLOW = {
                             "{% if preferred_demo_time %}"
                             "Preferred Demo Time: {{ preferred_demo_time }}\n"
                             "{% endif %}"
+                            "{% if payroll_next_step == 'request_quote' %}"
+                            "Quote requested for '{{ recommended_plan_name }}' to be sent to {{ customer_profile.email }}.\n"
+                            "{% endif %}"
                             "Source Flow: {{ source_flow or 'payroll_software' }}"
                         )
                     },
@@ -209,13 +252,17 @@ PAYROLL_SOFTWARE_FLOW = {
                             "opportunity_name_template": "Payroll Software Lead",
                             "amount": 500.00, # Consider making this dynamic based on the plan
                             "product_sku": "{{ product_sku or 'PAYROLL-SW-01' }}",
-                            "stage": "qualification",
+                            "stage": "{% if payroll_next_step == 'request_quote' %}quoting{% else %}qualification{% endif %}",
                             "save_opportunity_id_to": "created_opportunity_id"
                         }
                     },
                     {
                         "action_type": "send_admin_notification",
-                        "message_template": "New Payroll Lead & Opportunity created for {{ contact.name or contact.whatsapp_id }}:\n\n{{ final_notes }}\nOpportunity ID: {{ created_opportunity_id }}"
+                        "message_template": (
+                            "{% if payroll_next_step == 'request_quote' %}ACTION REQUIRED: Payroll Quote requested by {{ contact.name or contact.whatsapp_id }}.{% else %}New Payroll Lead & Opportunity created for {{ contact.name or contact.whatsapp_id }}:{% endif %}\n\n"
+                            "{{ final_notes }}\n"
+                            "Opportunity ID: {{ created_opportunity_id }}"
+                        )
                     }
                 ]
             },
@@ -235,7 +282,7 @@ PAYROLL_SOFTWARE_FLOW = {
                             "{% if payroll_next_step == 'request_demo' %}"
                             "A specialist will contact you shortly to confirm your demo time."
                             "{% elif payroll_next_step == 'request_quote' %}"
-                            "A specialist will prepare a detailed quote and send it to you."
+                            "Thank you! Your quote for the *{{ recommended_plan_name }}* is being prepared and will be sent to *{{ customer_profile.email }}* shortly."
                             "{% endif %}"
                             " We look forward to speaking with you!"
                         )

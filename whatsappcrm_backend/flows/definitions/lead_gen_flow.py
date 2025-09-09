@@ -456,19 +456,139 @@ LEAD_GENERATION_FLOW = {
                         "type": "button",
                         "body": {"text": "What would you like to do next regarding the *{{ chosen_product_details.0.name }}*?"},
                         "action": { "buttons": [
-                            {"type": "reply", "reply": {"id": "view_more_details", "title": "View More Details"}},
-                            {"type": "reply", "reply": {"id": "view_add_ons", "title": "View Add-ons"}},
-                            {"type": "reply", "reply": {"id": "proceed_to_follow_up", "title": "I'm ready, proceed"}}
+                            {"type": "reply", "reply": {"id": "request_quote", "title": "Get a Quote"}},
+                            {"type": "reply", "reply": {"id": "talk_to_agent", "title": "Talk to an Agent"}},
+                            {"type": "reply", "reply": {"id": "main_menu", "title": "Main Menu"}}
                         ]}
                     }
                 },
                 "reply_config": {"expected_type": "interactive_id", "save_to_variable": "next_action_choice"}
             },
             "transitions": [
-                {"to_step": "inform_more_details", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_more_details"}},
-                {"to_step": "inform_add_ons", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "view_add_ons"}},
-                {"to_step": "process_product_choice", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "proceed_to_follow_up"}}
+                {"to_step": "check_email_for_quote", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "request_quote"}},
+                {"to_step": "human_handover_product_question", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "talk_to_agent"}},
+                {"to_step": "end_flow_to_main_menu", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "main_menu"}}
             ]
+        },
+        {
+            "name": "check_email_for_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "has_email", "value_template": "{{ 'yes' if customer_profile.email else 'no' }}"}]
+            },
+            "transitions": [
+                {"to_step": "confirm_email_for_quote", "priority": 0, "condition_config": {"type": "variable_equals", "variable_name": "has_email", "value": "yes"}},
+                {"to_step": "ask_email_for_quote", "priority": 1, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "confirm_email_for_quote",
+            "type": "question",
+            "config": {
+                "message_config": {
+                    "message_type": "interactive",
+                    "interactive": {
+                        "type": "button",
+                        "body": {"text": "Great! I can prepare a quote for the *{{ chosen_product_details.0.name }}*. Shall I send it to the email we have on file: *{{ customer_profile.email }}*?"},
+                        "action": { "buttons": [
+                            {"type": "reply", "reply": {"id": "email_ok", "title": "Yes, send it"}},
+                            {"type": "reply", "reply": {"id": "email_new", "title": "Use another email"}}
+                        ]}
+                    }
+                },
+                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "email_confirmation"}
+            },
+            "transitions": [
+                {"to_step": "generate_and_send_quote", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_ok"}},
+                {"to_step": "ask_email_for_quote", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "email_new"}}
+            ]
+        },
+        {
+            "name": "ask_email_for_quote",
+            "type": "question",
+            "config": {
+                "message_config": {"message_type": "text", "text": {"body": "No problem. What email address should I send the quote to?"}},
+                "reply_config": {"expected_type": "email", "save_to_variable": "quote_email"},
+                "fallback_config": {
+                    "action": "re_prompt", "max_retries": 2,
+                    "re_prompt_message_text": "That does not appear to be a valid email address. Please enter a valid email (e.g., name@example.com)."
+                }
+            },
+            "transitions": [
+                {"to_step": "update_email_and_send_quote", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "quote_email"}}
+            ]
+        },
+        {
+            "name": "update_email_and_send_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [{"action_type": "update_customer_profile", "fields_to_update": {"email": "{{ quote_email }}"}}]
+            },
+            "transitions": [
+                {"to_step": "generate_and_send_quote", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "generate_and_send_quote",
+            "type": "action",
+            "config": {
+                "actions_to_run": [
+                    {
+                        "action_type": "set_context_variable",
+                        "variable_name": "final_notes",
+                        "value_template": "Lead requested a quote for product '{{ chosen_product_details.0.name }}' (SKU: {{ chosen_product_sku }}). Quote to be sent to: {{ customer_profile.email }}"
+                    },
+                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ final_notes }}\n---\n{{ customer_profile.notes or '' }}", "lead_status": "qualified"}},
+                    {
+                        "action_type": "create_opportunity",
+                        "params_template": {
+                            "opportunity_name_template": "Quote Request for {{ chosen_product_details.0.name }}",
+                            "amount": "{{ chosen_product_details.0.price }}",
+                            "product_sku": "{{ chosen_product_sku }}",
+                            "stage": "quoting",
+                            "save_opportunity_id_to": "created_opportunity_id"
+                        }
+                    },
+                    {
+                        "action_type": "send_admin_notification",
+                        "message_template": "ACTION REQUIRED: Quote requested by {{ contact.name or contact.whatsapp_id }}.\n\nProduct: {{ chosen_product_details.0.name }} (SKU: {{ chosen_product_sku }})\nSend PDF quote to: {{ customer_profile.email }}\nOpportunity ID: {{ created_opportunity_id }}"
+                    }
+                ]
+            },
+            "transitions": [
+                {"to_step": "end_flow_quote_sent", "priority": 0, "condition_config": {"type": "always_true"}}
+            ]
+        },
+        {
+            "name": "end_flow_quote_sent",
+            "type": "end_flow",
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "Thank you! I am preparing your quote for the *{{ chosen_product_details.0.name }}* and will send it to *{{ customer_profile.email }}* shortly. A team member will also be in touch to discuss it with you."}
+                }
+            },
+            "transitions": []
+        },
+        {
+            "name": "human_handover_product_question",
+            "type": "human_handover",
+            "config": {
+                "pre_handover_message_text": "Of course. I'm connecting you with a product specialist who can answer your questions about the *{{ chosen_product_details.0.name }}*. Please give them a moment.",
+                "notification_details": "Lead Gen Flow: Customer has a question about product {{ chosen_product_details.0.name }}."
+            },
+            "transitions": []
+        },
+        {
+            "name": "end_flow_to_main_menu",
+            "type": "end_flow",
+            "config": {
+                "message_config": {
+                    "message_type": "text",
+                    "text": {"body": "No problem. Let me know if there is anything else I can help with."}
+                }
+            },
+            "transitions": []
         },
         {
             "name": "query_all_services",
@@ -478,7 +598,7 @@ LEAD_GENERATION_FLOW = {
             },
             "transitions": [
                 {"to_step": "present_service_options", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "service_options.0"}},
-                {"to_step": "handle_no_products_found", "priority": 1, "condition_config": {"type": "always_true"}}
+                {"to_step": "human_handover_no_match", "priority": 1, "condition_config": {"type": "always_true"}}
             ]
         },
         {
@@ -534,107 +654,53 @@ LEAD_GENERATION_FLOW = {
             "type": "action",
             "config": {"actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nService Interest: {{ chosen_service_details.0.name }}\nNext Step: Follow-up"}]},
             "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "ask_when_to_follow_up_service", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "inform_more_details",
-            "type": "send_message",
+            "name": "human_handover_no_match",
+            "type": "human_handover",
             "config": {
-                "message_type": "text",
-                "text": {"body": "Understood. We have noted your request for more details. A product specialist will provide them during your follow-up call."}
+                "pre_handover_message_text": "My apologies, I could not find a direct match for '{{ inquiry_topic_from_trigger }}'. I'm connecting you with a specialist who can help find the perfect solution for you.",
+                "notification_details": "Lead Gen Flow: No product match found for '{{ inquiry_topic_from_trigger }}'. Needs human assistance."
             },
-            "transitions": [
-                {"to_step": "process_product_choice_details", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
+            "transitions": []
         },
         {
-            "name": "process_product_choice_details",
-            "type": "action",
-            "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: Requested more details"}]
-            },
-            "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "inform_add_ons",
-            "type": "send_message",
-            "config": {
-                "message_type": "text",
-                "text": {"body": "Great! We will be happy to discuss available add-ons for the *{{ chosen_product_details.0.name }}* during your follow-up call."}
-            },
-            "transitions": [
-                {"to_step": "process_product_choice_addons", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "process_product_choice_addons",
-            "type": "action",
-            "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: Requested add-ons"}]
-            },
-            "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "handle_no_products_found",
-            "type": "send_message",
-            "config": {
-                "message_type": "text", 
-                "text": {"body": "My apologies, I could not find a direct match in our system at this time. A product specialist will review your requirements and contact you with a customized quote shortly."}
-            },
-            "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 1, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "process_product_choice",
-            "type": "action",
-            "config": {
-                "actions_to_run": [{"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nProduct Interest: {{ chosen_product_sku }}\nNext Step: {{ next_action_choice | default('Follow-up') }}"}]
-            },
-            "transitions": [
-                {"to_step": "ask_when_to_follow_up", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "ask_when_to_follow_up",
+            "name": "ask_when_to_follow_up_service",
             "type": "question",
             "config": {
-                "message_config": {"message_type": "text", "text": {"body": "Thank you. To finalize, when would be a good time for our team to contact you for a detailed discussion?"}},
+                "message_config": {"message_type": "text", "text": {"body": "Thank you. To finalize, when would be a good time for our team to contact you to discuss the *{{ chosen_service_details.0.name }}* service?"}},
                 "reply_config": {"save_to_variable": "follow_up_time", "expected_type": "text"}
             },
             "transitions": [
-                {"to_step": "send_summary_and_end", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "follow_up_time"}}
+                {"to_step": "send_summary_and_end_service", "priority": 0, "condition_config": {"type": "variable_exists", "variable_name": "follow_up_time"}}
             ]
         },
         {
-            "name": "send_summary_and_end",
+            "name": "send_summary_and_end_service",
             "type": "action",
             "config": {
                 "actions_to_run": [
-                    {"action_type": "set_context_variable", "variable_name": "lead_notes", "value_template": "{{ lead_notes }}\nFollow-up Time: {{ follow_up_time }}"},
-                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ lead_notes }}\n---\n{{ customer_profile.notes or '' }}"}},
+                    {"action_type": "set_context_variable", "variable_name": "final_notes", "value_template": "{{ lead_notes }}\nFollow-up Time: {{ follow_up_time }}"},
+                    {"action_type": "update_customer_profile", "fields_to_update": {"notes": "{{ final_notes }}\n---\n{{ customer_profile.notes or '' }}"}},
                     {"action_type": "send_admin_notification", "message_template": (
-                        "New Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
+                        "New Service Lead from {{ contact.name or contact.whatsapp_id }}:\n\n"
                         "Name: {{ customer_profile.first_name }} {{ customer_profile.last_name or '' }}\n"
                         "Company: {{ customer_profile.company }}\n"
                         "Email: {{ customer_profile.email }}\n"
-                        "Notes:\n{{ lead_notes }}"
+                        "Notes:\n{{ final_notes }}"
                     )}
                 ]
             },
             "transitions": [
-                {"to_step": "end_flow_final", "priority": 1, "condition_config": {"type": "always_true"}},
+                {"to_step": "end_flow_final_service", "priority": 1, "condition_config": {"type": "always_true"}},
             ]
         },
         {
-            "name": "end_flow_final",
+            "name": "end_flow_final_service",
             "type": "end_flow",
-            "config": {"message_config": {"message_type": "text", "text": {"body": "Thank you. We have all the details we need. A representative will contact you around {{ follow_up_time }}. Thank you for your interest in Showline Solutions! We look forward to speaking with you."}}},
+            "config": {"message_config": {"message_type": "text", "text": {"body": "Thank you. We have all the details we need. A representative will contact you around {{ follow_up_time }} to discuss the service. We look forward to speaking with you!"}}},
             "transitions": []
         }
     ]
