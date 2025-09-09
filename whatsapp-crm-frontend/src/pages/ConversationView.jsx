@@ -6,7 +6,7 @@ import useWebSocket, { ReadyState } from 'react-use-websocket';
 import { FiArrowLeft, FiSend, FiPaperclip, FiCheck, FiCheckCircle, FiClock, FiAlertTriangle } from 'react-icons/fi';
 import { useAuth } from '@/context/AuthContext';
 import { API_BASE_URL } from '@/lib/api';
-import { Button } from 'S@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { toast } from 'sonner';
