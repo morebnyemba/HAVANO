@@ -356,7 +356,7 @@ class MetaWebhookAPIView(View):
     def _handle_message(self, msg_data: dict, metadata: dict, value_entry: dict, active_config: MetaAppConfig, log_entry: WebhookEventLog, contact):
         # Local imports
         from conversations.models import Message
-        from flows.services import process_message_for_flow
+        from flows.tasks import process_flow_for_message_task
         # Import Contact for type hinting and for the action loop
         from conversations.models import Contact
 
