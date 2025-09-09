@@ -497,21 +497,31 @@ def _execute_step_actions(step: FlowStep, contact: Contact, flow_context: dict, 
                         if action_item_conf.limit is not None and isinstance(action_item_conf.limit, int):
                             queryset = queryset[:action_item_conf.limit]
                             
-                        results_list = []
-                        for obj in queryset:
-                            dict_obj = model_to_dict(obj)
-                            # Post-process to ensure all values are JSON serializable
-                            for key, value in dict_obj.items():
-                                if isinstance(value, (date, datetime)):
-                                    dict_obj[key] = value.isoformat()
-                                elif isinstance(value, Decimal):
-                                    dict_obj[key] = str(value)
-                                elif isinstance(value, (ImageFieldFile, FileField)):
-                                    try:
-                                        dict_obj[key] = value.url if value else None
-                                    except ValueError: # Handles case where file doesn't exist but field is populated
-                                        dict_obj[key] = None
-                            results_list.append(dict_obj)
+                        # --- OPTIMIZATION: Use .values() for performance ---
+                        fields_to_return = getattr(action_item_conf, 'fields_to_return', None)
+                        if fields_to_return and isinstance(fields_to_return, list):
+                            # OPTIMIZED PATH: Use .values() for much faster serialization. This is the recommended approach.
+                            results_list = list(queryset.values(*fields_to_return))
+                            # .values() handles Decimal and basic types. Dates need manual conversion for JSON.
+                            for item in results_list:
+                                for key, value in item.items():
+                                    if isinstance(value, (date, datetime)):
+                                        item[key] = value.isoformat()
+                        else:
+                            # BACKWARD COMPATIBILITY PATH: Use model_to_dict (slower)
+                            logger.warning(f"Contact {contact.id}: 'query_model' in step {step.id} is not using 'fields_to_return'. "
+                                           f"Using slower model_to_dict. Consider specifying fields for performance.")
+                            results_list = []
+                            for obj in queryset:
+                                dict_obj = model_to_dict(obj)
+                                # Post-process to ensure all values are JSON serializable
+                                for key, value in dict_obj.items():
+                                    if isinstance(value, (date, datetime)): dict_obj[key] = value.isoformat()
+                                    elif isinstance(value, Decimal): dict_obj[key] = str(value)
+                                    elif isinstance(value, (ImageFieldFile, FileField)):
+                                        try: dict_obj[key] = value.url if value else None
+                                        except ValueError: dict_obj[key] = None
+                                results_list.append(dict_obj)
                             
                         current_step_context[variable_name] = results_list
                         logger.info(f"Contact {contact.id}: Action in step {step.id} queried {model_name} and stored {len(results_list)} items in '{variable_name}'.")
