@@ -1231,7 +1231,7 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                         reply_is_valid = True
                 elif expected_reply_type == 'nfm_reply' and nfm_response_data is not None:
                     value_to_save = nfm_response_data
-                        reply_is_valid = True
+                    reply_is_valid = True
                 
                 if reply_is_valid and variable_to_save_name:
                     flow_context[variable_to_save_name] = value_to_save
