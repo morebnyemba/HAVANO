@@ -53,18 +53,22 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
     # To ensure sequential delivery, check for preceding messages that are either:
     # 1. Still pending dispatch (these should always be sent first).
     # 2. Were sent recently but not yet confirmed as delivered. We'll wait for a short period
-    #    (e.g., 2 minutes) for the delivery receipt. This balances sequential delivery with
-    #    preventing a single offline user from blocking all future messages indefinitely.
+    #    (e.g., 2 minutes) for the delivery receipt. This prevents sending a new message
+    #    before the previous one is confirmed delivered by WhatsApp's servers.
     stale_threshold = timezone.now() - timedelta(minutes=2)
 
     # Find the specific message causing the halt for better logging
+    # A message is halting if it's a preceding message for the same contact AND
+    # 1. It is still pending dispatch (must wait for it to be sent).
+    # OR
+    # 2. It was sent very recently, and we are waiting for a delivery receipt to ensure order.
     halting_message = Message.objects.filter(
         Q(contact=outgoing_msg.contact),
         Q(direction='out'),
         Q(id__lt=outgoing_msg.id),
         (
-            Q(status='pending_dispatch', timestamp__gte=stale_threshold) | # Not yet processed
-            Q(status__in=['sent', 'failed'], status_timestamp__gte=stale_threshold) # Processed but not in a final state (sent or awaiting retry)
+            Q(status='pending_dispatch') | # Always wait for pending messages.
+            Q(status='sent', status_timestamp__gte=stale_threshold) # Wait for recently sent messages to be delivered.
         )
     ).order_by('-id').first() # Get the most recent one for logging
 

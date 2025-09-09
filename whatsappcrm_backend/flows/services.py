@@ -790,8 +790,10 @@ def _evaluate_transition_condition(transition: FlowTransition, contact: Contact,
             nfm_payload = interactive_payload.get('nfm_reply', {})
             response_json_str = nfm_payload.get('response_json')
             if response_json_str:
-                try: nfm_response_data = json.loads(response_json_str)
-                except json.JSONDecodeError: logger.warning(f"Could not parse nfm_reply response_json for transition {transition.id}")
+                try:
+                    nfm_response_data = json.loads(response_json_str)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not parse nfm_reply response_json for transition {transition.id}")
     
     # --- Condition Implementations ---
     value_for_condition = config.get('value') # Get expected value for comparison
@@ -1183,11 +1185,11 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                     elif interactive_type == 'nfm_reply': # Handle Native Flow Message reply
                         response_json_str = interactive_payload.get('nfm_reply', {}).get('response_json')
                         if response_json_str:
-                            try:
+                            try: 
                                 nfm_response_data = json.loads(response_json_str)
-                            except json.JSONDecodeError:
+                            except json.JSONDecodeError: 
                                 logger.warning(f"Could not parse nfm_reply response_json for question step {current_step.name}")
-
+                
                 
                 
                 image_payload = message_data.get('image') if message_data.get('type') == 'image' else None
