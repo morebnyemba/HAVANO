@@ -34,7 +34,7 @@ from .serializers import (
 # from flows.services import process_message_for_flow # Imported locally in _handle_message
 # from conversations.services import get_or_create_contact_by_wa_id # Imported locally in post
 from conversations.models import Message # Imported locally in _handle_message
-from .tasks import send_whatsapp_message_task, send_read_receipt_task
+from .tasks import send_read_receipt_task
 
 logger = logging.getLogger('meta_integration') # Using the app-specific logger from your original file
 
@@ -398,73 +398,24 @@ class MetaWebhookAPIView(View):
         
         if log_entry and log_entry.pk:
             log_entry.message = incoming_msg_obj # Link log to message
-            log_entry.processing_status = 'processing_flow'
+            log_entry.processing_status = 'processing_queued'
             log_entry.save(update_fields=['message', 'processing_status'])
         
         try:
-            # This service function contains its own robust error handling and will
-            # return actions, including user-facing error messages if something goes wrong inside the flow.
-            flow_actions = process_message_for_flow(contact, msg_data, incoming_msg_obj)
-            
-            sent_message_count = 0
-            # Introduce a small delay for subsequent messages in the same flow response
-            # to prevent race conditions in the sequential sending logic.
-            dispatch_countdown = 0
-            if flow_actions:
-                logger.info(f"Flow for contact {contact.id} returned {len(flow_actions)} action(s).")
-                for action in flow_actions:
-                    if action.get('type') == 'send_whatsapp_message':
-                        recipient_wa_id = action.get('recipient_wa_id', contact.whatsapp_id)
-                        outgoing_message_type = action.get('message_type')
-                        outgoing_data_payload = action.get('data')
-                        
-                        # Determine the recipient contact object.
-                        # In most cases, this will be the same contact who sent the message.
-                        # This avoids a DB hit inside the loop if the recipient is the same.
-                        if recipient_wa_id == contact.whatsapp_id:
-                            recipient_contact = contact
-                        else:
-                            # If sending to a different contact, we must fetch them.
-                            # This is less common for direct replies but necessary for some flows.
-                            try:
-                                recipient_contact = Contact.objects.get(whatsapp_id=recipient_wa_id)
-                            except Contact.DoesNotExist:
-                                logger.error(f"Flow action requested sending to a non-existent contact WA_ID: {recipient_wa_id}. Skipping this action.")
-                                continue
-
-                        # Create the outgoing Message object in the database
-                        outgoing_msg = Message.objects.create(
-                            contact=recipient_contact,
-                            app_config=active_config,
-                            direction='out',
-                            message_type=outgoing_message_type,
-                            content_payload=outgoing_data_payload,
-                            status='pending_dispatch',
-                            timestamp=timezone.now(),
-                            triggered_by_flow_step_id=getattr(contact.flow_state, 'current_step_id', None) if hasattr(contact, 'flow_state') and contact.flow_state else None, # Use original contact's flow state
-                            related_incoming_message=incoming_msg_obj # Link to incoming message
-                        )
-                        # Asynchronously dispatch the message to be sent via the WhatsApp API
-                        # Use transaction.on_commit to prevent race conditions where the task
-                        # starts before the message object is committed to the database.
-                        transaction.on_commit(lambda: 
-                            send_whatsapp_message_task.apply_async(
-                                args=[outgoing_msg.id, active_config.id],
-                                countdown=dispatch_countdown
-                            ))
-                        sent_message_count += 1
-                        # Stagger the next message by a few seconds to allow the previous one to be processed.
-                        dispatch_countdown += 4
-            
-            if log_entry and log_entry.pk:
-                 self._save_log(log_entry, 'processed', f'Flow processing complete. {sent_message_count} message(s) dispatched.')
+            # --- ARCHITECTURAL CHANGE ---
+            # Instead of processing the flow synchronously, queue a Celery task.
+            # This makes the webhook response immediate.
+            transaction.on_commit(
+                lambda: process_flow_for_message_task.delay(incoming_msg_obj.id)
+            )
+            logger.info(f"Queued process_flow_for_message_task for message {incoming_msg_obj.id}.")
 
         except Exception as e:
             # This block catches unexpected errors in the message handling logic itself,
             # outside of the `process_message_for_flow` service's internal error handling.
             logger.error(f"Unhandled exception in _handle_message for WAMID {whatsapp_message_id} (Contact: {contact.id}): {e}", exc_info=True)
             if log_entry and log_entry.pk:
-                self._save_log(log_entry, 'failed', f"Critical error in webhook handler: {str(e)[:200]}")
+                self._save_log(log_entry, 'failed', f"Critical error in webhook handler before queueing: {str(e)[:200]}")
         
         # --- Send Read Receipt ---
         self._send_read_receipt(whatsapp_message_id, active_config)
