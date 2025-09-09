@@ -1,125 +1,100 @@
 // Filename: src/context/AuthContext.jsx
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useCallback } from 'react';
+import { useAtom } from 'jotai';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import apiClient from '../lib/api'; // Import the configured client
+import { jwtDecode } from 'jwt-decode';
 
-// const AUTH_API_URL = `${API_BASE_URL}/crm-api/auth`; // No longer needed
-
-const ACCESS_TOKEN_KEY = 'accessToken';
-const REFRESH_TOKEN_KEY = 'refreshToken';
-const USER_DATA_KEY = 'user';
+import { authService } from '../services/auth';
+import {
+  userAtom,
+  accessTokenAtom,
+  refreshTokenAtom,
+  isAuthenticatedAtom,
+  isLoadingAuthAtom,
+} from '../atoms/authAtoms';
 
 const AuthContext = createContext(null);
 
 // eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) {
+  if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };
 
 export const AuthProvider = ({ children }) => {
-  const [authState, setAuthState] = useState(() => {
-    const accessToken = localStorage.getItem(ACCESS_TOKEN_KEY);
-    const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    let user = null;
-    try {
-        user = JSON.parse(localStorage.getItem(USER_DATA_KEY));
-    } catch {
-        console.warn("Could not parse user data from localStorage");
-    }
-    return {
-      accessToken: accessToken || null,
-      refreshToken: refreshToken || null,
-      isAuthenticated: !!accessToken,
-      user: user || null,
-      isLoading: true, // Start with loading true until we check token
-    };
-  });
+  const [user, setUser] = useAtom(userAtom);
+  const [accessToken, setAccessToken] = useAtom(accessTokenAtom);
+  const [, setRefreshToken] = useAtom(refreshTokenAtom);
+  const [isAuthenticated] = useAtom(isAuthenticatedAtom);
+  const [isLoading, setIsLoading] = useAtom(isLoadingAuthAtom);
 
-  const setAuthData = useCallback((data) => {
-    const newAccessToken = data?.access || null;
-    const newRefreshToken = data?.refresh || null;
-    // Preserve existing user data if new data doesn't explicitly provide it
-    const newUser = data?.user !== undefined ? data.user : authState.user;
+  const navigate = useNavigate();
 
-    setAuthState({
-      accessToken: newAccessToken,
-      refreshToken: newRefreshToken,
-      isAuthenticated: !!newAccessToken,
-      user: newUser,
-      isLoading: false,
-    });
-
-    if (newAccessToken) localStorage.setItem(ACCESS_TOKEN_KEY, newAccessToken);
-    else localStorage.removeItem(ACCESS_TOKEN_KEY);
-
-    if (newRefreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
-    else localStorage.removeItem(REFRESH_TOKEN_KEY);
-    
-    if (newUser) localStorage.setItem(USER_DATA_KEY, JSON.stringify(newUser));
-    else localStorage.removeItem(USER_DATA_KEY);
-  }, [authState.user]); // Include authState.user to correctly use its value in closure
-
-  const logoutUser = useCallback(async (informBackend = true) => {
-    const currentRefreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
-    
-    // Clear local state and storage immediately
-    setAuthData({ access: null, refresh: null, user: null });
-
-    if (informBackend && currentRefreshToken) {
+  // Sync jotai state with localStorage on initial load
+  useEffect(() => {
+    const token = authService.getAccessToken();
+    if (token) {
       try {
-        // Use the configured apiClient to blacklist the token
-        await apiClient.post('/crm-api/auth/token/blacklist/', {
-          refresh: currentRefreshToken,
-        });
-        toast.info("You have been logged out.");
-      } catch (error) {
-        // The interceptor in apiClient will handle general error toasts.
-        // We might not need specific handling here unless it's a special case.
-        console.warn("Failed to blacklist token on server:", error.response?.data || error.message);
+        const decodedUser = jwtDecode(token);
+        if (decodedUser.exp * 1000 > Date.now()) {
+          // atomWithStorage should handle this, but we can be explicit
+          setAccessToken(token);
+          setRefreshToken(authService.getRefreshToken());
+          setUser(decodedUser);
+        } else {
+          // Token is expired. Clear state.
+          authService.logout(false);
+          setAccessToken(null);
+          setRefreshToken(null);
+          setUser(null);
+        }
+      } catch (e) {
+        console.error("Invalid token on app load.", e);
+        authService.logout(false);
+        setAccessToken(null);
+        setRefreshToken(null);
+        setUser(null);
       }
     }
-    // Navigation will be handled by ProtectedRoute or the calling component.
-  }, [setAuthData]);
+    setIsLoading(false);
+  }, [setAccessToken, setRefreshToken, setUser, setIsLoading]);
 
-  // This effect runs once on mount to set the initial auth state.
-  useEffect(() => {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
-    if (token) {
-      // Here you could add a check to /token/verify/ if you want to be sure.
-      // For now, we'll trust the token if it exists. The interceptor will refresh it if it's expired.
-      setAuthState(prev => ({ ...prev, isLoading: false }));
+  const login = async (username, password) => {
+    const result = await authService.login(username, password);
+    if (result.success) {
+      // Update jotai atoms after successful login
+      setAccessToken(authService.getAccessToken());
+      setRefreshToken(authService.getRefreshToken());
+      setUser(result.user);
+      return { success: true, user: result.user };
     } else {
-      setAuthState(prev => ({ ...prev, isLoading: false }));
-    }
-  }, []); // Run only once
-
-  const loginUser = async (username, password) => {
-    setAuthState(prev => ({ ...prev, isLoading: true }));
-    try {
-      // The apiClient will throw on non-2xx responses, and the interceptor will toast.
-      const response = await apiClient.post('/crm-api/auth/token/', { username, password });
-      const userData = response.data.user || { username }; // Adjust based on actual response
-      setAuthData({ ...response.data, user: userData });
-      toast.success("Login successful!");
-      return { success: true, user: userData }; // Return success for LoginPage to handle navigation
-    } catch (error) {
-      // The interceptor already showed a toast. We just need to handle UI state.
-      setAuthState(prev => ({ ...prev, isAuthenticated: false, user: null, isLoading: false }));
-      return { success: false, error: error.message };
+      // The LoginPage will handle showing the error message.
+      return { success: false, error: result.error };
     }
   };
 
+  const logout = useCallback(async () => {
+    await authService.logout(true); // true to notify backend
+
+    // Clear jotai atoms
+    setAccessToken(null);
+    setRefreshToken(null);
+    setUser(null);
+
+    toast.info("You have been logged out.");
+    navigate('/login', { replace: true });
+  }, [setAccessToken, setRefreshToken, setUser, navigate]);
+
   const value = {
-    accessToken: authState.accessToken,
-    user: authState.user,
-    isAuthenticated: authState.isAuthenticated,
-    isLoadingAuth: authState.isLoading, // Use this in ProtectedRoute
-    login: loginUser,
-    logout: logoutUser,
+    user,
+    isAuthenticated,
+    isLoadingAuth: isLoading,
+    login,
+    logout,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

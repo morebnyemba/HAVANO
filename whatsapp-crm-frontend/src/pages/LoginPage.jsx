@@ -16,7 +16,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   
-  const auth = useAuth();
+  const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || "/dashboard"; // Redirect to intended page or dashboard
@@ -28,13 +28,12 @@ export default function LoginPage() {
     setIsLoading(true);
     setError('');
 
-    const result = await auth.login(username, password);
+    const result = await login(username, password);
 
     if (result.success) {
       toast.success("Login successful! Redirecting...");
       navigate(from, { replace: true });
     } else {
-      // Error toast is already shown by the auth context
       setError(result.error);
       setIsLoading(false);
       usernameInputRef.current?.focus(); // Focus username input on error
