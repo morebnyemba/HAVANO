@@ -57,6 +57,10 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
     #    before the previous one is confirmed delivered by WhatsApp's servers.
     stale_threshold = timezone.now() - timedelta(minutes=2)
 
+    # NEW: Add a threshold for stale pending messages to prevent deadlocks.
+    # If a message has been pending for more than 5 minutes, assume it's stuck and proceed.
+    stale_pending_threshold = timezone.now() - timedelta(minutes=5)
+
     # Find the specific message causing the halt for better logging
     # A message is halting if it's a preceding message for the same contact AND
     # 1. It is still pending dispatch (must wait for it to be sent).
@@ -67,7 +71,7 @@ def send_whatsapp_message_task(self, outgoing_message_id: int, active_config_id:
         Q(direction='out'),
         Q(id__lt=outgoing_msg.id),
         (
-            Q(status='pending_dispatch') | # Always wait for pending messages.
+            Q(status='pending_dispatch', timestamp__gte=stale_pending_threshold) | # Only wait for RECENTLY created pending messages.
             Q(status='sent', status_timestamp__gte=stale_threshold) # Wait for recently sent messages to be delivered.
         )
     ).order_by('-id').first() # Get the most recent one for logging
