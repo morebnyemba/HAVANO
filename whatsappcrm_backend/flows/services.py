@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from django.conf import settings
 from datetime import date, datetime
 import re
+import uuid
 from decimal import Decimal, InvalidOperation
 import json
 
@@ -1169,6 +1170,15 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                         interactive_reply_id = interactive_payload.get('button_reply', {}).get('id')
                     elif interactive_type == 'list_reply':
                         interactive_reply_id = interactive_payload.get('list_reply', {}).get('id')
+                    elif interactive_type == 'nfm_reply': # Handle Native Flow Message reply
+                        response_json_str = interactive_payload.get('nfm_reply', {}).get('response_json')
+                        if response_json_str:
+                            try:
+                                nfm_response_data = json.loads(response_json_str)
+                            except json.JSONDecodeError:
+                                logger.warning(f"Could not parse nfm_reply response_json for question step {current_step.name}")
+
+                
                 
                 image_payload = message_data.get('image') if message_data.get('type') == 'image' else None
 
@@ -1208,6 +1218,9 @@ def process_message_for_flow(contact: Contact, message_data: dict, incoming_mess
                 elif expected_reply_type == 'image' and image_payload:
                     value_to_save = image_payload.get('id') # Save the WhatsApp Media ID
                     if value_to_save:
+                        reply_is_valid = True
+                elif expected_reply_type == 'nfm_reply' and nfm_response_data is not None:
+                    value_to_save = nfm_response_data
                         reply_is_valid = True
                 
                 if reply_is_valid and variable_to_save_name:

@@ -35,40 +35,53 @@ PAYROLL_SOFTWARE_FLOW = {
                 }
             },
             "transitions": [
-                {"to_step": "recommend_and_ask_current_system_starter", "priority": 0, "condition_config": {"type": "interactive_reply_id_equals", "value": "employees_1-10"}},
-                {"to_step": "recommend_and_ask_current_system_business", "priority": 1, "condition_config": {"type": "interactive_reply_id_equals", "value": "employees_11-50"}},
-                {"to_step": "recommend_and_ask_current_system_enterprise", "priority": 2, "condition_config": {"type": "interactive_reply_id_equals", "value": "employees_51+"}}
+                {"to_step": "set_plan_details", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "recommend_and_ask_current_system_starter",
-            "type": "question",
+            "name": "set_plan_details",
+            "type": "action",
             "config": {
-                "message_config": {
-                    "message_type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {
-                            "text": "For your team size, our *Starter Plan* is a perfect fit. It includes essential features like payslip generation, tax calculations, and direct deposits for up to 10 employees.\n\nTo help us understand your needs better, what are you currently using for payroll?"
-                        },
-                        "action": {
-                            "buttons": [
-                                {"type": "reply", "reply": {"id": "current_system_excel", "title": "Excel/Spreadsheets"}},
-                                {"type": "reply", "reply": {"id": "current_system_software", "title": "Another Software"}},
-                                {"type": "reply", "reply": {"id": "current_system_manual", "title": "Manual / Nothing"}}
-                            ]
-                        }
+                "actions_to_run": [
+                    {
+                        "action_type": "set_context_variable",
+                        "variable_name": "recommended_plan_name",
+                        "value_template": (
+                            "{% if employee_count_range == 'employees_1-10' %}Starter Plan"
+                            "{% elif employee_count_range == 'employees_11-50' %}Business Plan"
+                            "{% else %}Enterprise Plan{% endif %}"
+                        )
+                    },
+                    {
+                        "action_type": "set_context_variable",
+                        "variable_name": "recommended_plan_description",
+                        "value_template": (
+                            "{% if employee_count_range == 'employees_1-10' %}"
+                            "It includes essential features like payslip generation, tax calculations, and direct deposits for up to 10 employees."
+                            "{% elif employee_count_range == 'employees_11-50' %}"
+                            "It includes everything in Starter, plus advanced reporting and leave management for up to 50 employees."
+                            "{% else %}"
+                            "It offers a comprehensive solution with custom integrations, dedicated support, and advanced security features."
+                            "{% endif %}"
+                        )
+                    },
+                    {
+                        "action_type": "set_context_variable",
+                        "variable_name": "product_sku",
+                        "value_template": (
+                            "{% if employee_count_range == 'employees_1-10' %}PAYROLL-SW-STARTER"
+                            "{% elif employee_count_range == 'employees_11-50' %}PAYROLL-SW-BUSINESS"
+                            "{% else %}PAYROLL-SW-ENTERPRISE{% endif %}"
+                        )
                     }
-                },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "current_payroll_system"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 2, "re_prompt_message_text": "Please select an option for your current payroll system."}
+                ]
             },
             "transitions": [
-                {"to_step": "ask_next_step", "priority": 0, "condition_config": {"type": "always_true"}}
+                {"to_step": "recommend_and_ask_current_system", "priority": 0, "condition_config": {"type": "always_true"}}
             ]
         },
         {
-            "name": "recommend_and_ask_current_system_business",
+            "name": "recommend_and_ask_current_system",
             "type": "question",
             "config": {
                 "message_config": {
@@ -76,34 +89,7 @@ PAYROLL_SOFTWARE_FLOW = {
                     "interactive": {
                         "type": "button",
                         "body": {
-                            "text": "Our *Business Plan* is ideal for growing teams. It includes everything in Starter, plus advanced reporting and leave management for up to 50 employees.\n\nTo help us understand your needs better, what are you currently using for payroll?"
-                        },
-                        "action": {
-                            "buttons": [
-                                {"type": "reply", "reply": {"id": "current_system_excel", "title": "Excel/Spreadsheets"}},
-                                {"type": "reply", "reply": {"id": "current_system_software", "title": "Another Software"}},
-                                {"type": "reply", "reply": {"id": "current_system_manual", "title": "Manual / Nothing"}}
-                            ]
-                        }
-                    }
-                },
-                "reply_config": {"expected_type": "interactive_id", "save_to_variable": "current_payroll_system"},
-                "fallback_config": {"action": "re_prompt", "max_retries": 2, "re_prompt_message_text": "Please select an option for your current payroll system."}
-            },
-            "transitions": [
-                {"to_step": "ask_next_step", "priority": 0, "condition_config": {"type": "always_true"}}
-            ]
-        },
-        {
-            "name": "recommend_and_ask_current_system_enterprise",
-            "type": "question",
-            "config": {
-                "message_config": {
-                    "message_type": "interactive",
-                    "interactive": {
-                        "type": "button",
-                        "body": {
-                            "text": "For larger organizations, our *Enterprise Plan* offers a comprehensive solution with custom integrations, dedicated support, and advanced security features.\n\nTo help us understand your needs better, what are you currently using for payroll?"
+                            "text": "For your team size, our *{{ recommended_plan_name }}* is a perfect fit. {{ recommended_plan_description }}\n\nTo help us understand your needs better, what are you currently using for payroll?"
                         },
                         "action": {
                             "buttons": [
@@ -221,7 +207,7 @@ PAYROLL_SOFTWARE_FLOW = {
                         "action_type": "create_opportunity",
                         "params_template": {
                             "opportunity_name_template": "Payroll Software Lead",
-                            "amount": 500.00,
+                            "amount": 500.00, # Consider making this dynamic based on the plan
                             "product_sku": "{{ product_sku or 'PAYROLL-SW-01' }}",
                             "stage": "qualification",
                             "save_opportunity_id_to": "created_opportunity_id"
