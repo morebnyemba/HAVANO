@@ -88,7 +88,7 @@ export const AuthProvider = ({ children }) => {
     delete apiClient.defaults.headers.common['Authorization'];
 
     toast.info("You have been logged out.");
-  }, [setAccessToken, setRefreshToken, setUser, navigate]);
+  }, [setAccessToken, setRefreshToken, setUser]);
 
   const value = {
     user,
