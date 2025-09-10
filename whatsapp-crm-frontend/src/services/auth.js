@@ -1,6 +1,6 @@
 import { jwtDecode } from 'jwt-decode';
 
-const API_AUTH_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}/crm-api/auth`; // Base for auth endpoints
+const API_AUTH_BASE_URL = `${import.meta.env.VITE_API_BASE_URL || 'https://autochats.havano.online'}/crm-api/auth`; // Base for auth endpoints
 const ACCESS_TOKEN_KEY = 'accessToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
 
