@@ -4,6 +4,7 @@ import { useAtom } from 'jotai';
 import { toast } from 'sonner';
 import { jwtDecode } from 'jwt-decode';
 
+import apiClient from '@/lib/api'; // Import the central axios client
 import { authService } from '../services/auth';
 import {
   userAtom,
@@ -67,6 +68,8 @@ export const AuthProvider = ({ children }) => {
       setAccessToken(authService.getAccessToken());
       setRefreshToken(authService.getRefreshToken());
       setUser(result.user);
+      // Explicitly set the header on the client for immediate use
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${authService.getAccessToken()}`;
       return { success: true, user: result.user };
     } else {
       // The LoginPage will handle showing the error message.
@@ -81,9 +84,11 @@ export const AuthProvider = ({ children }) => {
     setAccessToken(null); // This will trigger isAuthenticatedAtom to be false
     setRefreshToken(null); // This will clear the refresh token
     setUser(null); // This will clear user data
+    // Also remove the default header from the client
+    delete apiClient.defaults.headers.common['Authorization'];
 
     toast.info("You have been logged out.");
-  }, [setAccessToken, setRefreshToken, setUser]);
+  }, [setAccessToken, setRefreshToken, setUser, navigate]);
 
   const value = {
     user,
