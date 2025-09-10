@@ -355,17 +355,31 @@ JAZZMIN_UI_TWEAKS = {
 BACKEND_DOMAIN_FOR_CSP = os.getenv('BACKEND_DOMAIN_FOR_CSP', 'autochats.havano.online')
 FRONTEND_DOMAIN_FOR_CSP = os.getenv('FRONTEND_DOMAIN_FOR_CSP', 'apps1.havano.online')
 
+# Base directives for production
+connect_src_list = [
+    "'self'",
+    f"https://{BACKEND_DOMAIN_FOR_CSP}",
+    f"wss://{BACKEND_DOMAIN_FOR_CSP}",
+    f"https://{FRONTEND_DOMAIN_FOR_CSP}",
+    f"wss://{FRONTEND_DOMAIN_FOR_CSP}",
+]
+
+# Add local development sources if in DEBUG mode
+if DEBUG:
+    connect_src_list.extend([
+        'http://localhost:8000',
+        'ws://localhost:8000',
+        'http://127.0.0.1:8000',
+        'ws://127.0.0.1:8000',
+        'http://localhost:5173', # Vite dev server
+        'ws://localhost:5173',   # Vite HMR WebSocket
+    ])
+
 # New format for django-csp >= 4.0
 CONTENT_SECURITY_POLICY = {
     'DIRECTIVES': {
         'default-src': ("'self'",),
-        'connect-src': (
-            "'self'",
-            f"https://{BACKEND_DOMAIN_FOR_CSP}",
-            f"wss://{BACKEND_DOMAIN_FOR_CSP}",
-            f"https://{FRONTEND_DOMAIN_FOR_CSP}",
-            f"wss://{FRONTEND_DOMAIN_FOR_CSP}",
-        ),
+        'connect-src': tuple(connect_src_list),
         'script-src': ("'self'", "'unsafe-inline'", "'unsafe-eval'"),
         'style-src': ("'self'", "'unsafe-inline'"),
         'img-src': ("'self'", "data:", "blob:"),
