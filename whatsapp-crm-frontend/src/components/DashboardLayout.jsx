@@ -1,6 +1,6 @@
 // src/components/DashboardLayout.jsx
 import React, { useState, useEffect } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Skeleton } from './ui/skeleton';
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from './ui/tooltip';
@@ -53,6 +53,7 @@ export default function DashboardLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
   
   const navigationLinks = [
     { to: '/dashboard', label: 'Dashboard', icon: <FiHome className="h-5 w-5" /> },
@@ -127,6 +128,11 @@ export default function DashboardLayout() {
   // Find the current page title from navigation links
   const currentPage = navigationLinks.find(link => location.pathname.startsWith(link.to));
   const pageTitle = currentPage ? currentPage.label : 'Dashboard';
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-100 dark:bg-slate-900 text-gray-800 dark:text-gray-200">
@@ -297,7 +303,7 @@ export default function DashboardLayout() {
                 className={`w-full justify-start text-sm font-medium h-10 rounded-lg text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 hover:text-red-700 dark:hover:text-red-300 ${
                   collapsed && !isMobileMenuOpen ? 'px-0 justify-center' : 'px-3 gap-3'
                 }`}
-                onClick={logout}
+                onClick={handleLogout}
               >
                 <FiLogOut className="h-5 w-5" />
                 {(isMobileMenuOpen || !collapsed) && "Logout"}

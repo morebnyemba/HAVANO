@@ -1,7 +1,6 @@
 // Filename: src/context/AuthContext.jsx
 import React, { createContext, useContext, useEffect, useCallback } from 'react';
 import { useAtom } from 'jotai';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { jwtDecode } from 'jwt-decode';
 
@@ -31,8 +30,6 @@ export const AuthProvider = ({ children }) => {
   const [, setRefreshToken] = useAtom(refreshTokenAtom);
   const [isAuthenticated] = useAtom(isAuthenticatedAtom);
   const [isLoading, setIsLoading] = useAtom(isLoadingAuthAtom);
-
-  const navigate = useNavigate();
 
   // Sync jotai state with localStorage on initial load
   useEffect(() => {
@@ -81,13 +78,12 @@ export const AuthProvider = ({ children }) => {
     await authService.logout(true); // true to notify backend
 
     // Clear jotai atoms
-    setAccessToken(null);
-    setRefreshToken(null);
-    setUser(null);
+    setAccessToken(null); // This will trigger isAuthenticatedAtom to be false
+    setRefreshToken(null); // This will clear the refresh token
+    setUser(null); // This will clear user data
 
     toast.info("You have been logged out.");
-    navigate('/login', { replace: true });
-  }, [setAccessToken, setRefreshToken, setUser, navigate]);
+  }, [setAccessToken, setRefreshToken, setUser]);
 
   const value = {
     user,
